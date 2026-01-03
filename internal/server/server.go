@@ -371,6 +371,7 @@ func (s *Server) requireCSRF(w http.ResponseWriter, r *http.Request) bool {
 
 	sessionID := s.getSessionID(r)
 	if sessionID == "" {
+		fmt.Printf("[CSRF] Missing session for %s %s\n", r.Method, r.URL.Path)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return false
 	}
@@ -380,7 +381,14 @@ func (s *Server) requireCSRF(w http.ResponseWriter, r *http.Request) bool {
 		csrfToken = r.Header.Get("X-CSRF-Token")
 	}
 
+	if csrfToken == "" {
+		fmt.Printf("[CSRF] Missing token for %s %s\n", r.Method, r.URL.Path)
+		http.Error(w, "Missing CSRF token", http.StatusForbidden)
+		return false
+	}
+
 	if !s.validateCSRFToken(csrfToken, sessionID) {
+		fmt.Printf("[CSRF] Invalid token for %s %s\n", r.Method, r.URL.Path)
 		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
 		return false
 	}
