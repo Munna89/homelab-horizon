@@ -18,7 +18,7 @@ Running a homelab with external access means juggling multiple systems that don'
 
 Homelab Horizon consolidates all of this into a single web UI:
 
-- **One Wildcard Cert**: A single `*.yourdomain.com` certificate covers all your services, inside and out
+- **Consolidated Certs**: Wildcard certs only cover one level (`*.example.com` won't cover `app.sub.example.com`), so we make it easy to add extra SANs like `*.vpn.example.com` - all visible and editable in the UI, and you can inspect exactly what each cert covers. No more mystery broken SSL.
 - **HTTPS Everywhere**: Same SSL cert works internally - no more HTTP fallbacks or certificate warnings on your LAN
 - **Automatic DNS Sync**: Add a service, DNS records update automatically (Route53 or Name.com)
 - **Split-Horizon Built-in**: Services resolve to internal IPs on your network/VPN, external IPs from the internet
