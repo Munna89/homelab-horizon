@@ -1,0 +1,408 @@
+package route53
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+const awsTimeout = 30 * time.Second
+
+func logAWS(profile, action string) {
+	if profile == "" {
+		profile = "default"
+	}
+	fmt.Printf("[AWS/%s] %s\n", profile, action)
+}
+
+// Record represents a DNS record
+type Record struct {
+	Name       string `json:"name"`
+	Type       string `json:"type"` // A, AAAA, CNAME, TXT
+	Value      string `json:"value"`
+	TTL        int    `json:"ttl"`
+	ZoneID     string `json:"zone_id"`
+	ZoneName   string `json:"zone_name"`
+	AWSProfile string `json:"aws_profile"`
+}
+
+// HostedZone represents a Route53 hosted zone
+type HostedZone struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Manager handles Route53 operations
+type Manager struct {
+	records []Record
+}
+
+// New creates a new Route53 manager
+func New() *Manager {
+	return &Manager{}
+}
+
+// SetRecords sets the managed records
+func (m *Manager) SetRecords(records []Record) {
+	m.records = records
+}
+
+// GetRecords returns the managed records
+func (m *Manager) GetRecords() []Record {
+	return m.records
+}
+
+// Available checks if AWS CLI is available
+func Available() bool {
+	_, err := exec.LookPath("aws")
+	return err == nil
+}
+
+// ListHostedZones returns available Route53 hosted zones
+func ListHostedZones(awsProfile string) ([]HostedZone, error) {
+	logAWS(awsProfile, "Listing hosted zones...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), awsTimeout)
+	defer cancel()
+
+	args := []string{"route53", "list-hosted-zones", "--output", "json"}
+
+	cmd := exec.CommandContext(ctx, "aws", args...)
+	if awsProfile != "" {
+		cmd.Env = append(os.Environ(), "AWS_PROFILE="+awsProfile)
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("AWS CLI timed out after %v", awsTimeout)
+		}
+		return nil, fmt.Errorf("failed to list hosted zones: %w", err)
+	}
+
+	var result struct {
+		HostedZones []struct {
+			ID   string `json:"Id"`
+			Name string `json:"Name"`
+		} `json:"HostedZones"`
+	}
+
+	if err := json.Unmarshal(output, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	var zones []HostedZone
+	for _, z := range result.HostedZones {
+		// Clean up the ID (remove /hostedzone/ prefix)
+		id := strings.TrimPrefix(z.ID, "/hostedzone/")
+		zones = append(zones, HostedZone{
+			ID:   id,
+			Name: strings.TrimSuffix(z.Name, "."),
+		})
+	}
+
+	return zones, nil
+}
+
+// GetCurrentValue gets the current value of a DNS record
+func GetCurrentValue(zoneID, name, recordType, awsProfile string) (string, error) {
+	logAWS(awsProfile, fmt.Sprintf("Getting current value for %s (%s)...", name, recordType))
+
+	ctx, cancel := context.WithTimeout(context.Background(), awsTimeout)
+	defer cancel()
+
+	args := []string{
+		"route53", "list-resource-record-sets",
+		"--hosted-zone-id", zoneID,
+		"--query", fmt.Sprintf("ResourceRecordSets[?Name=='%s.' && Type=='%s'].ResourceRecords[0].Value", name, recordType),
+		"--output", "text",
+	}
+
+	cmd := exec.CommandContext(ctx, "aws", args...)
+	if awsProfile != "" {
+		cmd.Env = append(os.Environ(), "AWS_PROFILE="+awsProfile)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("AWS CLI timed out after %v", awsTimeout)
+		}
+		// Include the AWS error output in the error message
+		errMsg := strings.TrimSpace(string(output))
+		if errMsg != "" {
+			return "", fmt.Errorf("%s: %s", err, errMsg)
+		}
+		return "", err
+	}
+
+	value := strings.TrimSpace(string(output))
+	if value == "None" || value == "" {
+		logAWS(awsProfile, fmt.Sprintf("Current value for %s: (empty)", name))
+		return "", nil
+	}
+	logAWS(awsProfile, fmt.Sprintf("Current value for %s: %q", name, value))
+	return value, nil
+}
+
+// UpdateRecord creates or updates a DNS record
+func UpdateRecord(r Record) error {
+	logAWS(r.AWSProfile, fmt.Sprintf("Updating %s -> %s...", r.Name, r.Value))
+
+	if r.TTL <= 0 {
+		r.TTL = 300
+	}
+
+	// Ensure name ends with zone name
+	if !strings.HasSuffix(r.Name, ".") {
+		r.Name = r.Name + "."
+	}
+
+	changeBatch := map[string]interface{}{
+		"Changes": []map[string]interface{}{
+			{
+				"Action": "UPSERT",
+				"ResourceRecordSet": map[string]interface{}{
+					"Name": r.Name,
+					"Type": r.Type,
+					"TTL":  r.TTL,
+					"ResourceRecords": []map[string]string{
+						{"Value": r.Value},
+					},
+				},
+			},
+		},
+	}
+
+	changeBatchJSON, err := json.Marshal(changeBatch)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), awsTimeout)
+	defer cancel()
+
+	args := []string{
+		"route53", "change-resource-record-sets",
+		"--hosted-zone-id", r.ZoneID,
+		"--change-batch", string(changeBatchJSON),
+	}
+
+	cmd := exec.CommandContext(ctx, "aws", args...)
+	if r.AWSProfile != "" {
+		cmd.Env = append(os.Environ(), "AWS_PROFILE="+r.AWSProfile)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			logAWS(r.AWSProfile, fmt.Sprintf("Update %s TIMEOUT after %v", r.Name, awsTimeout))
+			return fmt.Errorf("AWS CLI timed out after %v", awsTimeout)
+		}
+		logAWS(r.AWSProfile, fmt.Sprintf("Update %s FAILED: %s", r.Name, string(output)))
+		return fmt.Errorf("failed to update record: %s", string(output))
+	}
+
+	logAWS(r.AWSProfile, fmt.Sprintf("Update %s SUCCESS", r.Name))
+	return nil
+}
+
+// DeleteRecord deletes a DNS record
+func DeleteRecord(r Record) error {
+	logAWS(r.AWSProfile, fmt.Sprintf("Deleting %s...", r.Name))
+
+	// First get the current value
+	currentValue, err := GetCurrentValue(r.ZoneID, r.Name, r.Type, r.AWSProfile)
+	if err != nil || currentValue == "" {
+		return fmt.Errorf("record not found")
+	}
+
+	if r.TTL <= 0 {
+		r.TTL = 300
+	}
+
+	if !strings.HasSuffix(r.Name, ".") {
+		r.Name = r.Name + "."
+	}
+
+	changeBatch := map[string]interface{}{
+		"Changes": []map[string]interface{}{
+			{
+				"Action": "DELETE",
+				"ResourceRecordSet": map[string]interface{}{
+					"Name": r.Name,
+					"Type": r.Type,
+					"TTL":  r.TTL,
+					"ResourceRecords": []map[string]string{
+						{"Value": currentValue},
+					},
+				},
+			},
+		},
+	}
+
+	changeBatchJSON, err := json.Marshal(changeBatch)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), awsTimeout)
+	defer cancel()
+
+	args := []string{
+		"route53", "change-resource-record-sets",
+		"--hosted-zone-id", r.ZoneID,
+		"--change-batch", string(changeBatchJSON),
+	}
+
+	cmd := exec.CommandContext(ctx, "aws", args...)
+	if r.AWSProfile != "" {
+		cmd.Env = append(os.Environ(), "AWS_PROFILE="+r.AWSProfile)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("AWS CLI timed out after %v", awsTimeout)
+		}
+		return fmt.Errorf("failed to delete record: %s", string(output))
+	}
+
+	return nil
+}
+
+// GetPublicIP gets the current public IP address
+func GetPublicIP() (string, error) {
+	// Try multiple services
+	services := []string{
+		"https://api.ipify.org",
+		"https://ifconfig.me/ip",
+		"https://icanhazip.com",
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	var lastErr error
+
+	for _, svc := range services {
+		resp, err := client.Get(svc)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", svc, err)
+			continue
+		}
+
+		if resp.StatusCode == 200 {
+			buf := make([]byte, 64)
+			n, _ := resp.Body.Read(buf)
+			resp.Body.Close()
+			ip := strings.TrimSpace(string(buf[:n]))
+			if net.ParseIP(ip) != nil {
+				return ip, nil
+			}
+			lastErr = fmt.Errorf("%s: invalid IP response: %q", svc, ip)
+		} else {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("%s: status %d", svc, resp.StatusCode)
+		}
+	}
+
+	if lastErr != nil {
+		return "", fmt.Errorf("could not determine public IP: %w", lastErr)
+	}
+	return "", fmt.Errorf("could not determine public IP: all services failed")
+}
+
+// SyncRecord updates a record if the value has changed
+func SyncRecord(r Record) (changed bool, err error) {
+	currentValue, err := GetCurrentValue(r.ZoneID, r.Name, r.Type, r.AWSProfile)
+	if err != nil {
+		errStr := err.Error()
+		// Check if this is a permission error - don't try to create if we can't even read
+		if strings.Contains(errStr, "AccessDenied") || strings.Contains(errStr, "not authorized") {
+			logAWS(r.AWSProfile, fmt.Sprintf("Permission denied for %s: %v", r.Name, err))
+			return false, err
+		}
+		logAWS(r.AWSProfile, fmt.Sprintf("GetCurrentValue error for %s: %v, will try to create", r.Name, err))
+		// Record might not exist, try to create it
+		return true, UpdateRecord(r)
+	}
+
+	if currentValue == r.Value {
+		logAWS(r.AWSProfile, fmt.Sprintf("%s already set to %s", r.Name, r.Value))
+		return false, nil
+	}
+
+	logAWS(r.AWSProfile, fmt.Sprintf("%s value mismatch: current=%q new=%q", r.Name, currentValue, r.Value))
+	return true, UpdateRecord(r)
+}
+
+// SyncDynamicIP updates a record with the current public IP
+func SyncDynamicIP(r Record) (changed bool, newIP string, err error) {
+	ip, err := GetPublicIP()
+	if err != nil {
+		return false, "", err
+	}
+
+	r.Value = ip
+	r.Type = "A"
+
+	changed, err = SyncRecord(r)
+	return changed, ip, err
+}
+
+// GenerateIAMPolicy generates a fine-grained IAM policy for the given zone IDs
+func GenerateIAMPolicy(zoneIDs []string) string {
+	// Build zone ARNs
+	var zoneARNs []string
+	for _, zoneID := range zoneIDs {
+		// Remove /hostedzone/ prefix if present
+		zoneID = strings.TrimPrefix(zoneID, "/hostedzone/")
+		zoneARNs = append(zoneARNs, fmt.Sprintf("arn:aws:route53:::hostedzone/%s", zoneID))
+	}
+
+	// If no specific zones, use wildcard
+	if len(zoneARNs) == 0 {
+		zoneARNs = []string{"arn:aws:route53:::hostedzone/*"}
+	}
+
+	policy := map[string]interface{}{
+		"Version": "2012-10-17",
+		"Statement": []map[string]interface{}{
+			{
+				"Sid":    "Route53ListZones",
+				"Effect": "Allow",
+				"Action": []string{
+					"route53:ListHostedZones",
+					"route53:ListHostedZonesByName",
+				},
+				"Resource": "*",
+			},
+			{
+				"Sid":    "Route53ManageRecords",
+				"Effect": "Allow",
+				"Action": []string{
+					"route53:GetHostedZone",
+					"route53:ListResourceRecordSets",
+					"route53:ChangeResourceRecordSets",
+				},
+				"Resource": zoneARNs,
+			},
+			{
+				"Sid":    "Route53GetChanges",
+				"Effect": "Allow",
+				"Action": []string{
+					"route53:GetChange",
+				},
+				"Resource": "arn:aws:route53:::change/*",
+			},
+		},
+	}
+
+	data, _ := json.MarshalIndent(policy, "", "  ")
+	return string(data)
+}

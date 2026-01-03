@@ -1,0 +1,492 @@
+package wireguard
+
+import (
+	"bufio"
+	"bytes"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"regexp"
+	"strings"
+	"sync"
+)
+
+type Peer struct {
+	PublicKey  string
+	AllowedIPs string
+	Name       string
+}
+
+// PeerStatus contains live status from wg show
+type PeerStatus struct {
+	PublicKey       string
+	Endpoint        string
+	AllowedIPs      string
+	LatestHandshake string
+	TransferRx      string
+	TransferTx      string
+}
+
+// InterfaceStatus contains live interface status
+type InterfaceStatus struct {
+	Up        bool
+	PublicKey string
+	Port      string
+	Peers     map[string]PeerStatus // keyed by public key
+}
+
+type WGConfig struct {
+	mu           sync.Mutex
+	path         string
+	iface        string
+	privateKey   string
+	address      string
+	listenPort   string
+	postUp       string
+	postDown     string
+	peers        []Peer
+	rawInterface []string
+}
+
+func NewConfig(path, iface string) *WGConfig {
+	return &WGConfig{
+		path:  path,
+		iface: iface,
+	}
+}
+
+func (w *WGConfig) Load() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	data, err := os.ReadFile(w.path)
+	if err != nil {
+		return err
+	}
+
+	w.peers = nil
+	w.rawInterface = nil
+
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	var currentPeer *Peer
+	inInterface := false
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if line == "[Interface]" {
+			inInterface = true
+			currentPeer = nil
+			continue
+		}
+
+		if line == "[Peer]" {
+			if currentPeer != nil {
+				w.peers = append(w.peers, *currentPeer)
+			}
+			currentPeer = &Peer{}
+			inInterface = false
+			continue
+		}
+
+		if inInterface {
+			w.rawInterface = append(w.rawInterface, scanner.Text())
+			if strings.HasPrefix(line, "PrivateKey") {
+				w.privateKey = extractValue(line)
+			} else if strings.HasPrefix(line, "Address") {
+				w.address = extractValue(line)
+			} else if strings.HasPrefix(line, "ListenPort") {
+				w.listenPort = extractValue(line)
+			} else if strings.HasPrefix(line, "PostUp") {
+				w.postUp = extractValue(line)
+			} else if strings.HasPrefix(line, "PostDown") {
+				w.postDown = extractValue(line)
+			}
+		}
+
+		if currentPeer != nil {
+			if strings.HasPrefix(line, "PublicKey") {
+				currentPeer.PublicKey = extractValue(line)
+			} else if strings.HasPrefix(line, "AllowedIPs") {
+				currentPeer.AllowedIPs = extractValue(line)
+			} else if strings.HasPrefix(line, "#") && currentPeer.Name == "" {
+				currentPeer.Name = strings.TrimPrefix(line, "# ")
+			}
+		}
+	}
+
+	if currentPeer != nil {
+		w.peers = append(w.peers, *currentPeer)
+	}
+
+	return scanner.Err()
+}
+
+func extractValue(line string) string {
+	parts := strings.SplitN(line, "=", 2)
+	if len(parts) == 2 {
+		return strings.TrimSpace(parts[1])
+	}
+	return ""
+}
+
+func (w *WGConfig) GetPeers() []Peer {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	peers := make([]Peer, len(w.peers))
+	copy(peers, w.peers)
+	return peers
+}
+
+// GetPeerByIP returns the peer with the given IP address (without CIDR suffix)
+func (w *WGConfig) GetPeerByIP(ip string) *Peer {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	for _, p := range w.peers {
+		// AllowedIPs is typically "10.100.0.2/32" - extract just the IP
+		peerIP := strings.Split(p.AllowedIPs, "/")[0]
+		if peerIP == ip {
+			return &Peer{
+				PublicKey:  p.PublicKey,
+				AllowedIPs: p.AllowedIPs,
+				Name:       p.Name,
+			}
+		}
+	}
+	return nil
+}
+
+func (w *WGConfig) GetServerPublicKey() (string, error) {
+	if w.privateKey == "" {
+		return "", fmt.Errorf("no private key loaded")
+	}
+
+	cmd := exec.Command("wg", "pubkey")
+	cmd.Stdin = strings.NewReader(w.privateKey)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (w *WGConfig) AddPeer(name, publicKey, allowedIP string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	for _, p := range w.peers {
+		if p.PublicKey == publicKey {
+			return fmt.Errorf("peer with public key already exists")
+		}
+		if p.AllowedIPs == allowedIP {
+			return fmt.Errorf("peer with IP already exists")
+		}
+	}
+
+	f, err := os.OpenFile(w.path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	peerBlock := fmt.Sprintf("\n[Peer]\n# %s\nPublicKey = %s\nAllowedIPs = %s\n", name, publicKey, allowedIP)
+	if _, err := f.WriteString(peerBlock); err != nil {
+		return err
+	}
+
+	w.peers = append(w.peers, Peer{
+		PublicKey:  publicKey,
+		AllowedIPs: allowedIP,
+		Name:       name,
+	})
+
+	return nil
+}
+
+func (w *WGConfig) RemovePeer(publicKey string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	data, err := os.ReadFile(w.path)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var result []string
+	skip := false
+	found := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if trimmed == "[Peer]" {
+			skip = false
+		}
+
+		if skip {
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "PublicKey") && extractValue(trimmed) == publicKey {
+			skip = true
+			found = true
+			for len(result) > 0 {
+				last := strings.TrimSpace(result[len(result)-1])
+				if last == "[Peer]" || strings.HasPrefix(last, "#") || last == "" {
+					result = result[:len(result)-1]
+				} else {
+					break
+				}
+			}
+			continue
+		}
+
+		result = append(result, line)
+	}
+
+	if !found {
+		return fmt.Errorf("peer not found")
+	}
+
+	output := strings.TrimRight(strings.Join(result, "\n"), "\n") + "\n"
+	if err := os.WriteFile(w.path, []byte(output), 0600); err != nil {
+		return err
+	}
+
+	newPeers := make([]Peer, 0, len(w.peers)-1)
+	for _, p := range w.peers {
+		if p.PublicKey != publicKey {
+			newPeers = append(newPeers, p)
+		}
+	}
+	w.peers = newPeers
+
+	return nil
+}
+
+func (w *WGConfig) GetNextIP(vpnRange string) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	_, ipnet, err := net.ParseCIDR(vpnRange)
+	if err != nil {
+		return "", err
+	}
+
+	usedIPs := make(map[string]bool)
+	if w.address != "" {
+		ip := strings.Split(w.address, "/")[0]
+		usedIPs[ip] = true
+	}
+	for _, p := range w.peers {
+		ip := strings.Split(p.AllowedIPs, "/")[0]
+		usedIPs[ip] = true
+	}
+
+	ip := ipnet.IP.To4()
+	if ip == nil {
+		return "", fmt.Errorf("only IPv4 supported")
+	}
+
+	for i := 2; i < 255; i++ {
+		candidate := net.IPv4(ip[0], ip[1], ip[2], byte(i)).String()
+		if !usedIPs[candidate] {
+			return candidate + "/32", nil
+		}
+	}
+
+	return "", fmt.Errorf("no available IPs in range")
+}
+
+func GenerateKeyPair() (privateKey, publicKey string, err error) {
+	privCmd := exec.Command("wg", "genkey")
+	privOut, err := privCmd.Output()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate private key: %w", err)
+	}
+	privateKey = strings.TrimSpace(string(privOut))
+
+	pubCmd := exec.Command("wg", "pubkey")
+	pubCmd.Stdin = strings.NewReader(privateKey)
+	pubOut, err := pubCmd.Output()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate public key: %w", err)
+	}
+	publicKey = strings.TrimSpace(string(pubOut))
+
+	return privateKey, publicKey, nil
+}
+
+func (w *WGConfig) Reload() error {
+	cmd := exec.Command("bash", "-c", fmt.Sprintf("wg syncconf %s <(wg-quick strip %s)", w.iface, w.iface))
+	if err := cmd.Run(); err != nil {
+		restartCmd := exec.Command("bash", "-c", fmt.Sprintf("wg-quick down %s; wg-quick up %s", w.iface, w.iface))
+		return restartCmd.Run()
+	}
+	return nil
+}
+
+func (w *WGConfig) InterfaceUp() error {
+	cmd := exec.Command("wg-quick", "up", w.iface)
+	return cmd.Run()
+}
+
+func (w *WGConfig) InterfaceDown() error {
+	cmd := exec.Command("wg-quick", "down", w.iface)
+	return cmd.Run()
+}
+
+type SystemStatus struct {
+	InterfaceUp     bool
+	IPForwarding    bool
+	Masquerading    bool
+	InterfaceError  string
+	ForwardingError string
+	MasqError       string
+}
+
+func (w *WGConfig) CheckSystem(vpnRange string) SystemStatus {
+	status := SystemStatus{}
+
+	cmd := exec.Command("wg", "show", w.iface)
+	if err := cmd.Run(); err != nil {
+		status.InterfaceError = err.Error()
+	} else {
+		status.InterfaceUp = true
+	}
+
+	data, err := os.ReadFile("/proc/sys/net/ipv4/ip_forward")
+	if err != nil {
+		status.ForwardingError = err.Error()
+	} else if strings.TrimSpace(string(data)) == "1" {
+		status.IPForwarding = true
+	} else {
+		status.ForwardingError = "IP forwarding disabled"
+	}
+
+	cmd = exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING", "-s", vpnRange, "-j", "MASQUERADE")
+	if err := cmd.Run(); err != nil {
+		status.MasqError = "Masquerade rule not found"
+	} else {
+		status.Masquerading = true
+	}
+
+	return status
+}
+
+func EnableIPForwarding() error {
+	return os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0644)
+}
+
+func AddMasqueradeRule(vpnRange string) error {
+	cmd := exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING", "-s", vpnRange, "-j", "MASQUERADE")
+	return cmd.Run()
+}
+
+func (w *WGConfig) GetAddress() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.address
+}
+
+func GenerateClientConfig(clientPrivateKey, clientIP, serverPubKey, serverEndpoint, dns, allowedIPs string) string {
+	clientIPWithMask := clientIP
+	if !strings.Contains(clientIP, "/") {
+		clientIPWithMask = clientIP + "/32"
+	}
+	clientIPForAddress := strings.TrimSuffix(clientIPWithMask, "/32") + "/24"
+
+	return fmt.Sprintf(`[Interface]
+PrivateKey = %s
+Address = %s
+DNS = %s
+
+[Peer]
+PublicKey = %s
+Endpoint = %s
+AllowedIPs = %s
+PersistentKeepalive = 25
+`, clientPrivateKey, clientIPForAddress, dns, serverPubKey, serverEndpoint, allowedIPs)
+}
+
+func ValidatePublicKey(key string) bool {
+	if len(key) != 44 {
+		return false
+	}
+	matched, _ := regexp.MatchString(`^[A-Za-z0-9+/]{43}=$`, key)
+	return matched
+}
+
+// GetInterfaceStatus returns live interface status from wg show
+func (w *WGConfig) GetInterfaceStatus() InterfaceStatus {
+	status := InterfaceStatus{
+		Peers: make(map[string]PeerStatus),
+	}
+
+	cmd := exec.Command("wg", "show", w.iface)
+	out, err := cmd.Output()
+	if err != nil {
+		return status
+	}
+
+	status.Up = true
+	lines := strings.Split(string(out), "\n")
+	var currentPeer *PeerStatus
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "interface:") {
+			continue
+		}
+
+		if strings.HasPrefix(line, "public key:") {
+			status.PublicKey = strings.TrimSpace(strings.TrimPrefix(line, "public key:"))
+			continue
+		}
+
+		if strings.HasPrefix(line, "listening port:") {
+			status.Port = strings.TrimSpace(strings.TrimPrefix(line, "listening port:"))
+			continue
+		}
+
+		if strings.HasPrefix(line, "peer:") {
+			if currentPeer != nil {
+				status.Peers[currentPeer.PublicKey] = *currentPeer
+			}
+			currentPeer = &PeerStatus{
+				PublicKey: strings.TrimSpace(strings.TrimPrefix(line, "peer:")),
+			}
+			continue
+		}
+
+		if currentPeer != nil {
+			if strings.HasPrefix(line, "endpoint:") {
+				currentPeer.Endpoint = strings.TrimSpace(strings.TrimPrefix(line, "endpoint:"))
+			} else if strings.HasPrefix(line, "allowed ips:") {
+				currentPeer.AllowedIPs = strings.TrimSpace(strings.TrimPrefix(line, "allowed ips:"))
+			} else if strings.HasPrefix(line, "latest handshake:") {
+				currentPeer.LatestHandshake = strings.TrimSpace(strings.TrimPrefix(line, "latest handshake:"))
+			} else if strings.HasPrefix(line, "transfer:") {
+				transfer := strings.TrimSpace(strings.TrimPrefix(line, "transfer:"))
+				parts := strings.Split(transfer, ",")
+				if len(parts) >= 2 {
+					currentPeer.TransferRx = strings.TrimSpace(strings.TrimSuffix(parts[0], "received"))
+					currentPeer.TransferTx = strings.TrimSpace(strings.TrimSuffix(parts[1], "sent"))
+				}
+			}
+		}
+	}
+
+	if currentPeer != nil {
+		status.Peers[currentPeer.PublicKey] = *currentPeer
+	}
+
+	return status
+}
