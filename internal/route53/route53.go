@@ -317,6 +317,88 @@ func GetPublicIP() (string, error) {
 	return "", fmt.Errorf("could not determine public IP: all services failed")
 }
 
+type IPv6Status struct {
+	HasAddress     bool
+	HasGlobalIP    bool
+	Connectivity   bool
+	PublicIPv6     string
+	Error          string
+	Recommendation string
+}
+
+func CheckIPv6() IPv6Status {
+	status := IPv6Status{}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		status.Error = err.Error()
+		return status
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipNet.IP
+			if ip.To4() != nil {
+				continue
+			}
+			status.HasAddress = true
+			if ip.IsGlobalUnicast() && !ip.IsPrivate() {
+				status.HasGlobalIP = true
+			}
+		}
+	}
+
+	if !status.HasAddress {
+		status.Recommendation = "No IPv6 addresses found. IPv6 may be disabled or not available from your ISP."
+		return status
+	}
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, "tcp6", addr)
+			},
+		},
+	}
+
+	resp, err := client.Get("https://api6.ipify.org")
+	if err != nil {
+		status.Error = "IPv6 connectivity test failed: " + err.Error()
+		if status.HasGlobalIP {
+			status.Recommendation = "You have IPv6 addresses but cannot reach IPv6 internet. Your ISP may be blocking IPv6 or your router needs configuration."
+		} else {
+			status.Recommendation = "Only link-local IPv6 addresses found. Your ISP may not provide IPv6."
+		}
+		return status
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		buf := make([]byte, 64)
+		n, _ := resp.Body.Read(buf)
+		ip := strings.TrimSpace(string(buf[:n]))
+		if net.ParseIP(ip) != nil {
+			status.Connectivity = true
+			status.PublicIPv6 = ip
+		}
+	}
+
+	return status
+}
+
 // SyncRecord updates a record if the value has changed
 func SyncRecord(r Record) (changed bool, err error) {
 	currentValue, err := GetCurrentValue(r.ZoneID, r.Name, r.Type, r.AWSProfile)

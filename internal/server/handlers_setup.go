@@ -156,8 +156,8 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	status := s.wg.CheckSystem(s.config.VPNRange)
 	dnsStatus := s.dns.Status()
 	requirements := checkSystemRequirements()
+	ipv6Status := route53.CheckIPv6()
 
-	// Check if setup is complete
 	setupStatus := CheckSetupStatus(s.config.WGConfigPath)
 
 	data := map[string]interface{}{
@@ -173,6 +173,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		"Status":                 status,
 		"DNSStatus":              dnsStatus,
 		"Requirements":           requirements,
+		"IPv6Status":             ipv6Status,
 		"SetupComplete":          !setupStatus.NeedsSetup,
 		"Message":                r.URL.Query().Get("msg"),
 		"Error":                  r.URL.Query().Get("err"),

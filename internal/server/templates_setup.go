@@ -112,6 +112,25 @@ const setupTemplate = `<!DOCTYPE html>
                         <div style="color: #888; font-size: 0.85em; margin-top: 0.25rem;">Firewall rule that translates VPN client IPs to the server's IP when accessing the local network</div>
                     </td>
                 </tr>
+                <tr>
+                    <td style="vertical-align: top;">IPv6</td>
+                    <td>
+                        {{if .IPv6Status.Connectivity}}
+                        <span class="status-ok">● Working</span>
+                        {{if .IPv6Status.PublicIPv6}}<span style="color: #888; margin-left: 0.5rem; font-size: 0.85em;">({{.IPv6Status.PublicIPv6}})</span>{{end}}
+                        {{else if .IPv6Status.HasGlobalIP}}
+                        <span class="status-err">● Blocked</span>
+                        <div style="color: #e74c3c; font-size: 0.85em; margin-top: 0.25rem;">{{.IPv6Status.Recommendation}}</div>
+                        {{else if .IPv6Status.HasAddress}}
+                        <span style="color: #f39c12;">● Link-local only</span>
+                        <div style="color: #888; font-size: 0.85em; margin-top: 0.25rem;">{{.IPv6Status.Recommendation}}</div>
+                        {{else}}
+                        <span style="color: #888;">● Not available</span>
+                        <div style="color: #888; font-size: 0.85em; margin-top: 0.25rem;">{{.IPv6Status.Recommendation}}</div>
+                        {{end}}
+                        <div style="color: #888; font-size: 0.85em; margin-top: 0.25rem;">IPv6 connectivity status - helps diagnose slow DNS or connection issues</div>
+                    </td>
+                </tr>
             </table>
             <form method="POST" action="/admin/reload" style="display:inline">
                 <button type="submit" class="secondary">Reload WireGuard</button>
