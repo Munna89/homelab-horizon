@@ -25,6 +25,7 @@ import (
 	"homelab-horizon/internal/monitor"
 	"homelab-horizon/internal/qr"
 	"homelab-horizon/internal/route53"
+	"homelab-horizon/internal/system"
 	"homelab-horizon/internal/wireguard"
 )
 
@@ -145,6 +146,9 @@ type Server struct {
 	configPath  string
 	adminToken  string
 	csrfSecret  string
+	dryRun      bool
+	fs          system.FileSystem
+	runner      system.CommandRunner
 	wg          *wireguard.WGConfig
 	dns         *dnsmasq.DNSMasq
 	haproxy     *haproxy.HAProxy
@@ -160,10 +164,22 @@ func New(configPath string) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	return NewWithConfig(cfg, configPath)
+	return NewWithConfig(cfg, configPath, false)
 }
 
-func NewWithConfig(cfg *config.Config, configPath string) (*Server, error) {
+func NewWithConfig(cfg *config.Config, configPath string, dryRun bool) (*Server, error) {
+	// Set up system interfaces
+	var fs system.FileSystem
+	var runner system.CommandRunner
+	if dryRun {
+		fs = system.NewDryRunFileSystem()
+		runner = system.NewDryRunCommandRunner()
+		fmt.Println("DRY RUN MODE: No changes will be made")
+	} else {
+		fs = &system.RealFileSystem{}
+		runner = &system.RealCommandRunner{}
+	}
+
 	// Use existing admin token or generate a new one
 	adminToken := cfg.AdminToken
 	isNewToken := false
@@ -232,6 +248,9 @@ func NewWithConfig(cfg *config.Config, configPath string) (*Server, error) {
 		configPath:  configPath,
 		adminToken:  adminToken,
 		csrfSecret:  generateToken(32),
+		dryRun:      dryRun,
+		fs:          fs,
+		runner:      runner,
 		wg:          wg,
 		dns:         dns,
 		haproxy:     hap,
