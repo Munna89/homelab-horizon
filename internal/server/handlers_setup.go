@@ -178,6 +178,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		"Message":                r.URL.Query().Get("msg"),
 		"Error":                  r.URL.Query().Get("err"),
 		"CSRFToken":              s.getCSRFToken(r),
+		"Version":                s.version,
 	}
 	s.templates["setup"].Execute(w, data)
 }
@@ -349,13 +350,15 @@ func (s *Server) handleRoute53DeleteRecord(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/admin?msg=Route53+records+are+now+auto-generated+from+services.+Remove+external+access+from+the+service.", http.StatusSeeOther)
 }
 
-// handleHelp shows the getting started guide
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	if !s.isAdmin(r) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-	s.templates["help"].Execute(w, nil)
+	data := map[string]interface{}{
+		"Version": s.version,
+	}
+	s.templates["help"].Execute(w, data)
 }
 
 // SystemRequirement represents a system requirement check

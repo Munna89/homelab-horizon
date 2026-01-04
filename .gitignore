@@ -5,3 +5,4 @@ homelab-horizon
 homelab-horizon.service
 coverage.out
 coverage.html
+deploy.sh

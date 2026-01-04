@@ -87,7 +87,7 @@ func runServer(configPath string, dryRun bool) {
 
 	fmt.Printf("Config search paths: %s\n", strings.Join(config.SearchPaths, ", "))
 
-	srv, err := server.NewWithConfig(cfg, cfgPath, dryRun)
+	srv, err := server.NewWithConfig(cfg, cfgPath, dryRun, Version)
 	if err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}

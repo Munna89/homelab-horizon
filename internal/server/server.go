@@ -147,6 +147,7 @@ type Server struct {
 	adminToken  string
 	csrfSecret  string
 	dryRun      bool
+	version     string
 	fs          system.FileSystem
 	runner      system.CommandRunner
 	wg          *wireguard.WGConfig
@@ -164,10 +165,10 @@ func New(configPath string) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	return NewWithConfig(cfg, configPath, false)
+	return NewWithConfig(cfg, configPath, false, "dev")
 }
 
-func NewWithConfig(cfg *config.Config, configPath string, dryRun bool) (*Server, error) {
+func NewWithConfig(cfg *config.Config, configPath string, dryRun bool, version string) (*Server, error) {
 	// Set up system interfaces
 	var fs system.FileSystem
 	var runner system.CommandRunner
@@ -249,6 +250,7 @@ func NewWithConfig(cfg *config.Config, configPath string, dryRun bool) (*Server,
 		adminToken:  adminToken,
 		csrfSecret:  generateToken(32),
 		dryRun:      dryRun,
+		version:     version,
 		fs:          fs,
 		runner:      runner,
 		wg:          wg,
@@ -692,6 +694,8 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	ipv6Status := route53.CheckIPv6()
+
 	data := map[string]interface{}{
 		"Peers":           peers,
 		"Invites":         invites,
@@ -713,6 +717,8 @@ func (s *Server) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		"WGGatewayIP":  s.config.GetWGGatewayIP(),
 		"TemplateZone": templateZone,
 		"CSRFToken":    s.getCSRFToken(r),
+		"IPv6Status":   ipv6Status,
+		"Version":      s.version,
 	}
 	s.templates["admin"].Execute(w, data)
 }

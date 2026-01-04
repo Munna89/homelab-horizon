@@ -12,7 +12,10 @@ const setupTemplate = `<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="flex" style="justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-            <h1>Setup & Configuration</h1>
+            <div>
+                <h1 style="margin-bottom: 0;">Setup & Configuration</h1>
+                <span style="color: #555; font-size: 0.85em;">{{.Version}}</span>
+            </div>
             <a href="/admin"><button class="secondary">Back to Admin</button></a>
         </div>
 
