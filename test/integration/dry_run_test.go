@@ -23,7 +23,7 @@ func TestDryRunMode(t *testing.T) {
 		t.Fatalf("Failed to save test config: %v", err)
 	}
 
-	srv, err := server.NewWithConfig(cfg, configPath, true)
+	srv, err := server.NewWithConfig(cfg, configPath, true, "test")
 	if err != nil {
 		t.Fatalf("Failed to create server in dry run mode: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestRealMode(t *testing.T) {
 		t.Fatalf("Failed to save test config: %v", err)
 	}
 
-	srv, err := server.NewWithConfig(cfg, configPath, false)
+	srv, err := server.NewWithConfig(cfg, configPath, false, "test")
 	if err != nil {
 		t.Fatalf("Failed to create server in real mode: %v", err)
 	}
