@@ -121,35 +121,56 @@ const setupTemplate = `<!DOCTYPE html>
         <div class="card">
             <h2>Systemd Service</h2>
             {{if .ServiceInstalled}}
-            <p class="status-ok">Systemd service is installed</p>
-            {{if .ServiceEnabled}}
-            <p class="status-ok">Service is enabled (starts on boot)</p>
+                {{if .ServiceEnabled}}
+                <p class="status-ok">● Installed and enabled (starts on boot)</p>
+                {{else}}
+                <p class="status-ok">● Installed</p>
+                <p class="status-err">● Not enabled (won't start on boot)</p>
+                <form method="POST" action="/admin/setup/enable-service" style="margin-bottom: 1rem;">
+                    <button class="success" type="submit">Enable Service</button>
+                </form>
+                {{end}}
+                {{if .ServiceVerifyOK}}
+                <p class="status-ok">● Passes systemd-analyze verify</p>
+                {{else if .ServiceVerifyOutput}}
+                <div style="background: #2d1a1a; border: 1px solid #e74c3c; border-radius: 4px; padding: 1rem; margin: 0.5rem 0;">
+                    <p class="status-err" style="margin: 0 0 0.5rem 0;">● systemd-analyze verify found issues</p>
+                    <pre style="font-size: 0.8em; color: #e74c3c; margin: 0; white-space: pre-wrap;">{{.ServiceVerifyOutput}}</pre>
+                </div>
+                {{end}}
+                {{if .ServiceNeedsUpdate}}
+                <div style="background: #2d1a1a; border: 1px solid #e74c3c; border-radius: 4px; padding: 1rem; margin: 1rem 0;">
+                    <p class="status-err" style="margin: 0 0 0.5rem 0;">● Service file differs from expected</p>
+                    <p style="color: #ccc; margin: 0; font-size: 0.9em;">The installed service file doesn't match what would be generated. This can happen after moving the binary or config file.</p>
+                </div>
+                <details open style="margin: 1rem 0;">
+                    <summary style="cursor: pointer; font-weight: bold;">Current vs Expected</summary>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.5rem;">
+                        <div>
+                            <div style="font-size: 0.85em; color: #e74c3c; margin-bottom: 0.25rem;">Current (installed)</div>
+                            <pre style="font-size: 0.8em; overflow-x: auto; background: #1a1a2e; padding: 0.5rem; border-radius: 4px; margin: 0;">{{.CurrentServiceContent}}</pre>
+                        </div>
+                        <div>
+                            <div style="font-size: 0.85em; color: #2ecc71; margin-bottom: 0.25rem;">Expected (would generate)</div>
+                            <pre style="font-size: 0.8em; overflow-x: auto; background: #1a1a2e; padding: 0.5rem; border-radius: 4px; margin: 0;">{{.ExpectedServiceContent}}</pre>
+                        </div>
+                    </div>
+                </details>
+                <form method="POST" action="/admin/setup/install-service">
+                    <button class="success" type="submit">Update Service File</button>
+                </form>
+                {{else}}
+                <details style="margin: 1rem 0;">
+                    <summary style="cursor: pointer; font-weight: bold;">View Service File</summary>
+                    <pre style="margin-top: 0.5rem; font-size: 0.85em; overflow-x: auto; background: #1a1a2e; padding: 0.5rem; border-radius: 4px;">{{.CurrentServiceContent}}</pre>
+                </details>
+                {{end}}
             {{else}}
-            <p class="status-err">Service is not enabled</p>
-            <form method="POST" action="/admin/setup/enable-service" style="margin-bottom: 1rem;">
-                <button class="success" type="submit">Enable Service</button>
-            </form>
-            {{end}}
-            {{if .ServiceNeedsUpdate}}
-            <p class="status-err">Service file content differs from expected</p>
+            <p class="status-err">● Not installed</p>
+            <p style="color: #ccc;">Install the service to run homelab-horizon as a background service with root privileges.</p>
             <details style="margin: 1rem 0;">
-                <summary style="cursor: pointer; font-weight: bold;">View Current Service Content</summary>
-                <pre style="margin-top: 0.5rem; font-size: 0.85em; overflow-x: auto;">{{.CurrentServiceContent}}</pre>
-            </details>
-            <details style="margin: 1rem 0;">
-                <summary style="cursor: pointer; font-weight: bold;">View Expected Service Content</summary>
-                <pre style="margin-top: 0.5rem; font-size: 0.85em; overflow-x: auto;">{{.ExpectedServiceContent}}</pre>
-            </details>
-            <form method="POST" action="/admin/setup/install-service">
-                <button class="success" type="submit">Update Service File</button>
-            </form>
-            {{end}}
-            {{else}}
-            <p class="status-err">Systemd service is not installed</p>
-            <p>Install the service to run homelab-horizon as a background service with root privileges.</p>
-            <details style="margin: 1rem 0;">
-                <summary style="cursor: pointer; font-weight: bold;">Preview Service Content</summary>
-                <pre style="margin-top: 0.5rem; font-size: 0.85em; overflow-x: auto;">{{.ExpectedServiceContent}}</pre>
+                <summary style="cursor: pointer; font-weight: bold;">Preview Service File</summary>
+                <pre style="margin-top: 0.5rem; font-size: 0.85em; overflow-x: auto; background: #1a1a2e; padding: 0.5rem; border-radius: 4px;">{{.ExpectedServiceContent}}</pre>
             </details>
             <form method="POST" action="/admin/setup/install-service">
                 <button class="success" type="submit">Install Systemd Service</button>

@@ -18,7 +18,7 @@ import (
 // %s is the ExecStart command, %s is the working directory
 const systemdServiceTemplate = `[Unit]
 Description=Homelab Horizon - Split-Horizon DNS & VPN Management
-After=network.target
+After=network-online.target
 Wants=network-online.target
 
 [Service]
@@ -27,16 +27,8 @@ ExecStart=%s
 WorkingDirectory=%s
 Restart=on-failure
 RestartSec=5
-
 User=root
 Group=root
-
-ProtectSystem=strict
-ReadWritePaths=/etc/wireguard /etc/homelab-horizon /etc/dnsmasq.d /proc/sys/net/ipv4
-
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
-NoNewPrivileges=false
-PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
@@ -44,12 +36,12 @@ WantedBy=multi-user.target
 
 // SetupStatus represents the current setup state
 type SetupStatus struct {
-	IsFirstRun        bool // No WG config and no service - truly fresh install
-	NeedsSetup        bool // Some critical items are missing
-	WGConfigExists    bool
-	ServiceInstalled  bool
-	RequirementsMet   bool // All required packages installed
-	AllRequirements   []SystemRequirement
+	IsFirstRun       bool // No WG config and no service - truly fresh install
+	NeedsSetup       bool // Some critical items are missing
+	WGConfigExists   bool
+	ServiceInstalled bool
+	RequirementsMet  bool // All required packages installed
+	AllRequirements  []SystemRequirement
 }
 
 // CheckSetupStatus determines the current setup state
@@ -107,12 +99,15 @@ func generateServiceContent(configPath string) string {
 		execStart = fmt.Sprintf("%s --config %s", binaryPath, configPath)
 	}
 
-	// Determine working directory from config path
+	// Determine working directory from config path (must be absolute for systemd)
 	workDir := "/etc/homelab-horizon"
 	if configPath != "" {
-		dir := filepath.Dir(configPath)
-		if dir != "" && dir != "." {
-			workDir = dir
+		absConfigPath, err := filepath.Abs(configPath)
+		if err == nil {
+			dir := filepath.Dir(absConfigPath)
+			if dir != "" && dir != "." {
+				workDir = dir
+			}
 		}
 	}
 
@@ -130,6 +125,8 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	serviceInstalled := false
 	serviceEnabled := false
 	serviceNeedsUpdate := false
+	serviceVerifyOK := false
+	serviceVerifyOutput := ""
 	currentServiceContent := ""
 	servicePath := "/etc/systemd/system/homelab-horizon.service"
 	expectedServiceContent := generateServiceContent(s.configPath)
@@ -137,13 +134,16 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	if data, err := os.ReadFile(servicePath); err == nil {
 		serviceInstalled = true
 		currentServiceContent = string(data)
-		// Check if service content differs from expected
 		if strings.TrimSpace(currentServiceContent) != strings.TrimSpace(expectedServiceContent) {
 			serviceNeedsUpdate = true
 		}
-		cmd := exec.Command("systemctl", "is-enabled", "homelab-horizon")
-		if err := cmd.Run(); err == nil {
+		if err := exec.Command("systemctl", "is-enabled", "homelab-horizon").Run(); err == nil {
 			serviceEnabled = true
+		}
+		if output, err := exec.Command("systemd-analyze", "verify", servicePath).CombinedOutput(); err != nil {
+			serviceVerifyOutput = strings.TrimSpace(string(output))
+		} else {
+			serviceVerifyOK = true
 		}
 	}
 
@@ -165,6 +165,8 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		"ServiceInstalled":       serviceInstalled,
 		"ServiceEnabled":         serviceEnabled,
 		"ServiceNeedsUpdate":     serviceNeedsUpdate,
+		"ServiceVerifyOK":        serviceVerifyOK,
+		"ServiceVerifyOutput":    serviceVerifyOutput,
 		"CurrentServiceContent":  currentServiceContent,
 		"ExpectedServiceContent": expectedServiceContent,
 		"WGConfigExists":         wgConfigExists,
