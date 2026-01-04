@@ -1,3 +1,7 @@
 .idea
 .claude
 dist
+homelab-horizon
+homelab-horizon.service
+coverage.out
+coverage.html
