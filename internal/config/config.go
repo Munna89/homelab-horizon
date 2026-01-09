@@ -15,8 +15,9 @@ import (
 type DNSProviderType string
 
 const (
-	DNSProviderRoute53 DNSProviderType = "route53"
-	DNSProviderNamecom DNSProviderType = "namecom"
+	DNSProviderRoute53     DNSProviderType = "route53"
+	DNSProviderNamecom     DNSProviderType = "namecom"
+	DNSProviderCloudflare  DNSProviderType = "cloudflare"
 )
 
 // DNSProviderConfig holds provider-specific credentials for DNS operations
@@ -33,6 +34,10 @@ type DNSProviderConfig struct {
 	// Name.com credentials
 	NamecomUsername string `json:"namecom_username,omitempty"`
 	NamecomAPIToken string `json:"namecom_api_token,omitempty"`
+
+	// Cloudflare credentials
+	CloudflareAPIToken string `json:"cloudflare_api_token,omitempty"`
+	CloudflareZoneID   string `json:"cloudflare_zone_id,omitempty"` // Optional: limit to specific zone
 }
 
 // Validate checks if the provider config has required fields
@@ -46,6 +51,10 @@ func (d *DNSProviderConfig) Validate() error {
 	case DNSProviderNamecom:
 		if d.NamecomUsername == "" || d.NamecomAPIToken == "" {
 			return errors.New("namecom requires namecom_username and namecom_api_token")
+		}
+	case DNSProviderCloudflare:
+		if d.CloudflareAPIToken == "" {
+			return errors.New("cloudflare requires cloudflare_api_token")
 		}
 	default:
 		return fmt.Errorf("unknown dns provider type: %s", d.Type)

@@ -174,6 +174,8 @@ func (c *Config) DeriveSSLDomains() []letsencrypt.DomainConfig {
 				AWSProfile:         providerCfg.AWSProfile,
 				NamecomUsername:    providerCfg.NamecomUsername,
 				NamecomAPIToken:    providerCfg.NamecomAPIToken,
+				CloudflareAPIToken: providerCfg.CloudflareAPIToken,
+				CloudflareZoneID:   providerCfg.CloudflareZoneID,
 			}
 		}
 

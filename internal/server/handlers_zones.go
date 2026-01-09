@@ -52,6 +52,14 @@ func (s *Server) handleAddZone(w http.ResponseWriter, r *http.Request) {
 			NamecomUsername: namecomUsername,
 			NamecomAPIToken: namecomAPIToken,
 		}
+	case config.DNSProviderCloudflare:
+		cloudflareAPIToken := strings.TrimSpace(r.FormValue("cloudflare_api_token"))
+
+		dnsProvider = &config.DNSProviderConfig{
+			Type:               config.DNSProviderCloudflare,
+			CloudflareAPIToken: cloudflareAPIToken,
+			CloudflareZoneID:   zoneID,
+		}
 	default:
 		http.Redirect(w, r, "/admin?err=Unknown+DNS+provider+type:+"+string(providerType), http.StatusSeeOther)
 		return

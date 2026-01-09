@@ -14,8 +14,9 @@ import (
 type DNSProviderType string
 
 const (
-	DNSProviderRoute53 DNSProviderType = "route53"
-	DNSProviderNamecom DNSProviderType = "namecom"
+	DNSProviderRoute53    DNSProviderType = "route53"
+	DNSProviderNamecom    DNSProviderType = "namecom"
+	DNSProviderCloudflare DNSProviderType = "cloudflare"
 )
 
 // DNSProviderConfig holds provider-specific credentials (copied from config to avoid import cycle)
@@ -32,12 +33,16 @@ type DNSProviderConfig struct {
 	// Name.com
 	NamecomUsername string
 	NamecomAPIToken string
+
+	// Cloudflare
+	CloudflareAPIToken string
+	CloudflareZoneID   string
 }
 
 // DomainConfig holds configuration for a single domain (or multiple SANs)
 type DomainConfig struct {
-	Domain      string             // Primary domain (e.g., "*.example.com")
-	ExtraSANs   []string           // Additional SANs (e.g., "*.vpn.example.com", "vpn.example.com")
+	Domain      string   // Primary domain (e.g., "*.example.com")
+	ExtraSANs   []string // Additional SANs (e.g., "*.vpn.example.com", "vpn.example.com")
 	Email       string
 	DNSProvider *DNSProviderConfig // DNS provider configuration
 }
@@ -186,6 +191,8 @@ func (m *Manager) RequestCertForDomainWithLog(d DomainConfig, logFn LogFunc) err
 		AWSProfile:         providerCfg.AWSProfile,
 		NamecomUsername:    providerCfg.NamecomUsername,
 		NamecomAPIToken:    providerCfg.NamecomAPIToken,
+		CloudflareAPIToken: providerCfg.CloudflareAPIToken,
+		CloudflareZoneID:   providerCfg.CloudflareZoneID,
 	}
 
 	// Build domain list - primary domain plus any extra SANs
@@ -272,19 +279,6 @@ func (m *Manager) PackageAllForHAProxy() error {
 		}
 	}
 	return nil
-}
-
-// GetHAProxyCertPaths returns paths to all available HAProxy certs
-func (m *Manager) GetHAProxyCertPaths() []string {
-	var paths []string
-	for _, d := range m.config.Domains {
-		baseDomain := strings.TrimPrefix(d.Domain, "*.")
-		certPath := filepath.Join(m.config.HAProxyCertDir, baseDomain+".pem")
-		if _, err := os.Stat(certPath); err == nil {
-			paths = append(paths, certPath)
-		}
-	}
-	return paths
 }
 
 // CertInfo holds detailed certificate information
@@ -421,11 +415,6 @@ func (m *Manager) CheckCertSANs(d DomainConfig) (bool, []string, error) {
 	}
 
 	return true, missing, nil
-}
-
-// Available returns true because Lego is compiled in (no external dependencies)
-func Available() bool {
-	return true
 }
 
 // GetAWSProfiles returns a list of available AWS profiles

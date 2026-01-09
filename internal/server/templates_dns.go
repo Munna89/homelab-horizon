@@ -46,7 +46,7 @@ const dnsTemplate = `<!DOCTYPE html>
                     <td data-label="Zone"><strong>{{.Name}}</strong></td>
                     <td data-label="Provider">
                         {{if .DNSProvider}}
-                            {{if eq .DNSProvider.Type "route53"}}<span style="color: #f90;">Route53</span>{{else if eq .DNSProvider.Type "namecom"}}<span style="color: #3498db;">Name.com</span>{{else}}{{.DNSProvider.Type}}{{end}}
+                            {{if eq .DNSProvider.Type "route53"}}<span style="color: #f90;">Route53</span>{{else if eq .DNSProvider.Type "namecom"}}<span style="color: #3498db;">Name.com</span>{{else if eq .DNSProvider.Type "cloudflare"}}<span style="color: #f48120;">Cloudflare</span>{{else}}{{.DNSProvider.Type}}{{end}}
                         {{else if .AWSProfile}}
                             <span style="color: #f90;">Route53</span>
                         {{else}}
@@ -55,7 +55,7 @@ const dnsTemplate = `<!DOCTYPE html>
                     </td>
                     <td data-label="User">
                         {{if .DNSProvider}}
-                            {{if eq .DNSProvider.Type "route53"}}{{if .DNSProvider.AWSProfile}}{{.DNSProvider.AWSProfile}}{{else}}default{{end}}{{else if eq .DNSProvider.Type "namecom"}}{{.DNSProvider.NamecomUsername}}{{end}}
+                            {{if eq .DNSProvider.Type "route53"}}{{if .DNSProvider.AWSProfile}}{{.DNSProvider.AWSProfile}}{{else}}default{{end}}{{else if eq .DNSProvider.Type "namecom"}}{{.DNSProvider.NamecomUsername}}{{else if eq .DNSProvider.Type "cloudflare"}}API Token{{end}}
                         {{else if .AWSProfile}}{{.AWSProfile}}{{else}}default{{end}}
                     </td>
                     <td data-label="Zone ID"><code style="font-size: 0.85em;">{{.ZoneID}}</code></td>

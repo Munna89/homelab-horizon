@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/go-acme/lego/v4/challenge"
+	"github.com/go-acme/lego/v4/providers/dns/cloudflare"
 	"github.com/go-acme/lego/v4/providers/dns/namedotcom"
 	"github.com/go-acme/lego/v4/providers/dns/route53"
 )
@@ -13,8 +14,9 @@ import (
 type DNSProviderType string
 
 const (
-	DNSProviderRoute53 DNSProviderType = "route53"
-	DNSProviderNamecom DNSProviderType = "namecom"
+	DNSProviderRoute53    DNSProviderType = "route53"
+	DNSProviderNamecom    DNSProviderType = "namecom"
+	DNSProviderCloudflare DNSProviderType = "cloudflare"
 )
 
 // DNSProviderConfig holds provider-specific credentials for ACME challenges
@@ -31,6 +33,10 @@ type DNSProviderConfig struct {
 	// Name.com
 	NamecomUsername string
 	NamecomAPIToken string
+
+	// Cloudflare
+	CloudflareAPIToken string
+	CloudflareZoneID   string
 }
 
 // CreateChallengeProvider creates a Lego DNS challenge provider from configuration
@@ -44,6 +50,8 @@ func CreateChallengeProvider(cfg *DNSProviderConfig) (challenge.Provider, error)
 		return createRoute53Provider(cfg)
 	case DNSProviderNamecom:
 		return createNamecomProvider(cfg)
+	case DNSProviderCloudflare:
+		return createCloudflareProvider(cfg)
 	default:
 		return nil, fmt.Errorf("unknown dns provider type for ACME: %s", cfg.Type)
 	}
@@ -90,6 +98,24 @@ func createNamecomProvider(cfg *DNSProviderConfig) (challenge.Provider, error) {
 	provider, err := namedotcom.NewDNSProvider()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create namecom provider: %w", err)
+	}
+
+	return provider, nil
+}
+
+// createCloudflareProvider creates a Lego Cloudflare provider
+func createCloudflareProvider(cfg *DNSProviderConfig) (challenge.Provider, error) {
+	// Set environment variables for lego's cloudflare provider
+	if cfg.CloudflareAPIToken != "" {
+		os.Setenv("CF_DNS_API_TOKEN", cfg.CloudflareAPIToken)
+	}
+	if cfg.CloudflareZoneID != "" {
+		os.Setenv("CF_ZONE_API_TOKEN", cfg.CloudflareAPIToken) // Same token for zone API
+	}
+
+	provider, err := cloudflare.NewDNSProvider()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cloudflare provider: %w", err)
 	}
 
 	return provider, nil

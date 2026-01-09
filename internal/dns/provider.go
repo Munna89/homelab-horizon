@@ -62,6 +62,8 @@ func NewProvider(cfg *config.DNSProviderConfig) (Provider, error) {
 		return NewRoute53Provider(cfg)
 	case config.DNSProviderNamecom:
 		return NewNamecomProvider(cfg)
+	case config.DNSProviderCloudflare:
+		return NewCloudflareProvider(cfg)
 	default:
 		return nil, fmt.Errorf("unknown dns provider type: %s", cfg.Type)
 	}
@@ -104,22 +106,4 @@ func GetPublicIP() (string, error) {
 		return "", fmt.Errorf("could not determine public IP: %w", lastErr)
 	}
 	return "", fmt.Errorf("could not determine public IP: all services failed")
-}
-
-// SyncDynamicIP updates a record with the current public IP
-func SyncDynamicIP(provider Provider, zoneID string, name string, ttl int) (changed bool, newIP string, err error) {
-	ip, err := GetPublicIP()
-	if err != nil {
-		return false, "", err
-	}
-
-	record := Record{
-		Name:  name,
-		Type:  "A",
-		Value: ip,
-		TTL:   ttl,
-	}
-
-	changed, err = provider.SyncRecord(zoneID, record)
-	return changed, ip, err
 }

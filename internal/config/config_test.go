@@ -419,6 +419,16 @@ func TestDNSProviderConfigValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "cloudflare valid",
+			config:  DNSProviderConfig{Type: DNSProviderCloudflare, CloudflareAPIToken: "token"},
+			wantErr: false,
+		},
+		{
+			name:    "cloudflare missing token",
+			config:  DNSProviderConfig{Type: DNSProviderCloudflare},
+			wantErr: true,
+		},
+		{
 			name:    "unknown provider",
 			config:  DNSProviderConfig{Type: "unknown"},
 			wantErr: true,

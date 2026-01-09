@@ -180,6 +180,7 @@ const adminTemplate = `<!DOCTYPE html>
                     <select name="dns_provider_type" id="dns-provider-type" style="width: 100%; background: #0f3460; color: #fff; padding: 0.75rem; margin-bottom: 0.5rem;" onchange="toggleProviderFields(this.value)">
                         <option value="route53">AWS Route53</option>
                         <option value="namecom">Name.com</option>
+                        <option value="cloudflare">Cloudflare</option>
                     </select>
 
                     <!-- Route53 Fields -->
@@ -228,6 +229,24 @@ const adminTemplate = `<!DOCTYPE html>
                         <button type="button" onclick="loadNamecomDomains()" style="margin-bottom: 0.5rem;">Load Domains</button>
                         <select name="namecom_domain_select" id="namecom-domain-select" style="width: 100%; background: #0f3460; color: #fff; padding: 0.75rem; margin-bottom: 0.5rem;" onchange="selectNamecomDomain(this)" disabled>
                             <option value="">Enter credentials and click Load Domains</option>
+                        </select>
+                    </div>
+
+                    <!-- Cloudflare Fields -->
+                    <div id="cloudflare-fields" style="display: none;">
+                        <details style="margin-bottom: 0.5rem; background: #1a1a2e; padding: 0.5rem; border-radius: 4px;">
+                            <summary style="cursor: pointer; color: #3498db; font-size: 0.9em;">How to get Cloudflare API Token</summary>
+                            <ol style="padding-left: 1.5rem; margin: 0.5rem 0; color: #888; font-size: 0.85em; line-height: 1.6;">
+                                <li>Go to <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank">Cloudflare API Tokens</a></li>
+                                <li>Click "Create Token"</li>
+                                <li>Use "Edit zone DNS" template or create custom with Zone:DNS:Edit permission</li>
+                                <li>Copy the generated token (shown only once)</li>
+                            </ol>
+                        </details>
+                        <input type="password" name="cloudflare_api_token" id="cloudflare-api-token" placeholder="Cloudflare API Token">
+                        <button type="button" onclick="loadCloudflareZones()" style="margin-bottom: 0.5rem;">Load Zones</button>
+                        <select name="cloudflare_zone_select" id="cloudflare-zone-select" style="width: 100%; background: #0f3460; color: #fff; padding: 0.75rem; margin-bottom: 0.5rem;" onchange="selectCloudflareZone(this)" disabled>
+                            <option value="">Enter API token and click Load Zones</option>
                         </select>
                     </div>
 
@@ -656,6 +675,7 @@ const adminTemplate = `<!DOCTYPE html>
     function toggleProviderFields(provider) {
         var route53Fields = document.getElementById('route53-fields');
         var namecomFields = document.getElementById('namecom-fields');
+        var cloudflareFields = document.getElementById('cloudflare-fields');
         var zoneName = document.getElementById('zone-name');
         var zoneId = document.getElementById('zone-id');
 
@@ -663,12 +683,17 @@ const adminTemplate = `<!DOCTYPE html>
         zoneName.value = '';
         zoneId.value = '';
 
+        // Hide all provider fields first
+        route53Fields.style.display = 'none';
+        namecomFields.style.display = 'none';
+        cloudflareFields.style.display = 'none';
+
         if (provider === 'route53') {
             route53Fields.style.display = 'block';
-            namecomFields.style.display = 'none';
         } else if (provider === 'namecom') {
-            route53Fields.style.display = 'none';
             namecomFields.style.display = 'block';
+        } else if (provider === 'cloudflare') {
+            cloudflareFields.style.display = 'block';
         }
     }
 
@@ -727,6 +752,67 @@ const adminTemplate = `<!DOCTYPE html>
         // Show warning if DNS is managed elsewhere
         if (option.dataset.managed === 'false') {
             errorDiv.innerHTML = '<strong>Warning:</strong> DNS for this domain is managed by external nameservers. DNS records created here will not work until you switch to Name.com nameservers or use the correct provider.';
+            errorDiv.style.display = 'block';
+            errorDiv.style.background = '#f39c12';
+        } else {
+            errorDiv.style.display = 'none';
+        }
+    }
+
+    function loadCloudflareZones() {
+        var apiToken = document.getElementById('cloudflare-api-token').value;
+        var zoneSelect = document.getElementById('cloudflare-zone-select');
+        var errorDiv = document.getElementById('zone-error');
+
+        errorDiv.style.display = 'none';
+
+        if (!apiToken) {
+            errorDiv.innerHTML = 'Please enter Cloudflare API token';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        zoneSelect.disabled = true;
+        zoneSelect.innerHTML = '<option value="">Loading zones...</option>';
+
+        fetch('/admin/dns/discover-zones?provider=cloudflare&api_token=' + encodeURIComponent(apiToken))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                zoneSelect.disabled = false;
+                if (data.error) {
+                    errorDiv.innerHTML = 'Error: ' + data.error;
+                    errorDiv.style.display = 'block';
+                    zoneSelect.innerHTML = '<option value="">Failed to load zones</option>';
+                    return;
+                }
+                if (!data.zones || data.zones.length === 0) {
+                    zoneSelect.innerHTML = '<option value="">No zones found</option>';
+                    return;
+                }
+                var html = '<option value="">Select Zone</option>';
+                data.zones.forEach(function(z) {
+                    var status = z.DNSManaged ? '' : ' (inactive)';
+                    html += '<option value="' + z.ID + '" data-name="' + z.Name + '" data-managed="' + z.DNSManaged + '">' + z.Name + status + '</option>';
+                });
+                zoneSelect.innerHTML = html;
+            })
+            .catch(function(err) {
+                zoneSelect.disabled = false;
+                errorDiv.innerHTML = 'Error: ' + err.message;
+                errorDiv.style.display = 'block';
+                zoneSelect.innerHTML = '<option value="">Failed to load zones</option>';
+            });
+    }
+
+    function selectCloudflareZone(select) {
+        var option = select.options[select.selectedIndex];
+        var errorDiv = document.getElementById('zone-error');
+        document.getElementById('zone-name').value = option.dataset.name || '';
+        document.getElementById('zone-id').value = option.value || '';
+
+        // Show warning if zone is not active
+        if (option.dataset.managed === 'false') {
+            errorDiv.innerHTML = '<strong>Warning:</strong> This zone is not active on Cloudflare. DNS records may not work.';
             errorDiv.style.display = 'block';
             errorDiv.style.background = '#f39c12';
         } else {

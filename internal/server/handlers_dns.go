@@ -56,6 +56,21 @@ func (s *Server) handleDNSDiscoverZones(w http.ResponseWriter, r *http.Request) 
 			NamecomAPIToken: apiToken,
 		}
 
+	case config.DNSProviderCloudflare:
+		apiToken := r.URL.Query().Get("api_token")
+
+		if apiToken == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"api_token required"}`)
+			return
+		}
+
+		cfg = &config.DNSProviderConfig{
+			Type:               config.DNSProviderCloudflare,
+			CloudflareAPIToken: apiToken,
+		}
+
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
