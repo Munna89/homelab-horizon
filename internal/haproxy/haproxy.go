@@ -231,12 +231,16 @@ listen stats
 
 	// HTTP frontend
 	if sslEnabled {
-		// Redirect HTTP to HTTPS
+		// Redirect HTTP to HTTPS (but allow /router-check on HTTP)
 		sb.WriteString(fmt.Sprintf(`frontend http_front
     bind *:%d
     mode http
     option forwardfor
-    redirect scheme https code 301 if !{ ssl_fc }
+    # Router check endpoint - returns 200 OK directly (requires special header to avoid conflicts)
+    acl is_router_check path /router-check
+    acl has_horizon_header hdr(X-Homelab-Horizon-Check) -m found
+    http-request return status 200 content-type "text/plain" string "OK" if is_router_check has_horizon_header
+    redirect scheme https code 301 if !is_router_check
 
 `, httpPort))
 
@@ -250,6 +254,8 @@ listen stats
     mode http
     option forwardfor
     http-request set-header X-Forwarded-Proto https
+    # Router check endpoint - returns 200 OK directly (requires special header to avoid conflicts)
+    http-request return status 200 content-type "text/plain" string "OK" if { path /router-check } { hdr(X-Homelab-Horizon-Check) -m found }
 `, httpsPort, certDir))
 	} else {
 		// HTTP only
@@ -257,6 +263,8 @@ listen stats
     bind *:%d
     mode http
     option forwardfor
+    # Router check endpoint - returns 200 OK directly (requires special header to avoid conflicts)
+    http-request return status 200 content-type "text/plain" string "OK" if { path /router-check } { hdr(X-Homelab-Horizon-Check) -m found }
 `, httpPort))
 	}
 

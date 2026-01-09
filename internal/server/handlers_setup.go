@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"homelab-horizon/internal/config"
+	"homelab-horizon/internal/haproxy"
 	"homelab-horizon/internal/letsencrypt"
 	"homelab-horizon/internal/route53"
 	"homelab-horizon/internal/wireguard"
@@ -377,6 +379,42 @@ func (s *Server) handleTestConnectivity(w http.ResponseWriter, r *http.Request) 
 
 	results := []ConnectivityCheck{}
 
+	// 0. Check if HAProxy config is up-to-date
+	if s.config.HAProxyEnabled {
+		var sslConfig *haproxy.SSLConfig
+		if s.config.SSLEnabled {
+			sslConfig = &haproxy.SSLConfig{
+				Enabled: true,
+				CertDir: s.config.SSLHAProxyCertDir,
+			}
+		}
+		expectedConfig := s.haproxy.GenerateConfig(
+			s.config.HAProxyHTTPPort,
+			s.config.HAProxyHTTPSPort,
+			sslConfig,
+		)
+		currentConfig, err := os.ReadFile(s.config.HAProxyConfigPath)
+		if err != nil {
+			results = append(results, ConnectivityCheck{
+				Name:    "HAProxy Config",
+				Status:  "failed",
+				Message: fmt.Sprintf("Cannot read HAProxy config: %v", err),
+			})
+		} else if strings.TrimSpace(string(currentConfig)) != strings.TrimSpace(expectedConfig) {
+			results = append(results, ConnectivityCheck{
+				Name:    "HAProxy Config",
+				Status:  "failed",
+				Message: "HAProxy config is out of date. Go to HAProxy page and click 'Write Config' then 'Reload'.",
+			})
+		} else {
+			results = append(results, ConnectivityCheck{
+				Name:    "HAProxy Config",
+				Status:  "ok",
+				Message: "HAProxy config is up to date",
+			})
+		}
+	}
+
 	// 1. Check DNS Resolution
 	// We check if a configured service domain resolves to its internal IP
 	dnsStatus := "failed"
@@ -427,31 +465,80 @@ func (s *Server) handleTestConnectivity(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if publicIP != "" {
-		ports := []struct {
-			port int
-			name string
-		}{
-			{80, "HTTP"},
-			{443, "HTTPS"},
+		// HTTP client with short timeout, skip TLS verification, and don't follow redirects
+		client := &http.Client{
+			Timeout: 5 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse // Don't follow redirects
+			},
 		}
 
-		for _, p := range ports {
-			status := "failed"
-			msg := ""
-			addr := net.JoinHostPort(publicIP, fmt.Sprintf("%d", p.port))
-			conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
-			if err == nil {
-				conn.Close()
-				status = "ok"
-				msg = fmt.Sprintf("Port %d is reachable at %s", p.port, publicIP)
+		// Always test HTTP
+		httpURL := fmt.Sprintf("http://%s:%d/router-check", publicIP, s.config.HAProxyHTTPPort)
+		req, _ := http.NewRequest("GET", httpURL, nil)
+		req.Header.Set("X-Homelab-Horizon-Check", "1")
+		resp, err := client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				results = append(results, ConnectivityCheck{
+					Name:    "Port Forwarding (HTTP)",
+					Status:  "ok",
+					Message: fmt.Sprintf("Verified our server at %s:%d via /router-check", publicIP, s.config.HAProxyHTTPPort),
+				})
+			} else if resp.StatusCode == 301 || resp.StatusCode == 302 {
+				// Redirect to HTTPS is expected when SSL is enabled
+				results = append(results, ConnectivityCheck{
+					Name:    "Port Forwarding (HTTP)",
+					Status:  "ok",
+					Message: fmt.Sprintf("Port %d reachable, redirects to HTTPS (expected)", s.config.HAProxyHTTPPort),
+				})
 			} else {
-				msg = fmt.Sprintf("Failed to connect to %s: %v", addr, err)
+				results = append(results, ConnectivityCheck{
+					Name:    "Port Forwarding (HTTP)",
+					Status:  "failed",
+					Message: fmt.Sprintf("Got status %d from %s (expected 200 or redirect)", resp.StatusCode, httpURL),
+				})
 			}
+		} else {
 			results = append(results, ConnectivityCheck{
-				Name:    fmt.Sprintf("Port Forwarding (%s)", p.name),
-				Status:  status,
-				Message: msg,
+				Name:    "Port Forwarding (HTTP)",
+				Status:  "failed",
+				Message: fmt.Sprintf("Failed to connect to %s: %v", httpURL, err),
 			})
+		}
+
+		// Only test HTTPS if SSL is enabled
+		if s.config.SSLEnabled {
+			httpsURL := fmt.Sprintf("https://%s:%d/router-check", publicIP, s.config.HAProxyHTTPSPort)
+			req, _ := http.NewRequest("GET", httpsURL, nil)
+			req.Header.Set("X-Homelab-Horizon-Check", "1")
+			resp, err := client.Do(req)
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == 200 {
+					results = append(results, ConnectivityCheck{
+						Name:    "Port Forwarding (HTTPS)",
+						Status:  "ok",
+						Message: fmt.Sprintf("Verified our server at %s:%d via /router-check", publicIP, s.config.HAProxyHTTPSPort),
+					})
+				} else {
+					results = append(results, ConnectivityCheck{
+						Name:    "Port Forwarding (HTTPS)",
+						Status:  "failed",
+						Message: fmt.Sprintf("Got status %d from %s (expected 200)", resp.StatusCode, httpsURL),
+					})
+				}
+			} else {
+				results = append(results, ConnectivityCheck{
+					Name:    "Port Forwarding (HTTPS)",
+					Status:  "failed",
+					Message: fmt.Sprintf("Failed to connect to %s: %v", httpsURL, err),
+				})
+			}
 		}
 
 		// UDP check for WireGuard (51820)
