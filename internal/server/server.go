@@ -142,22 +142,23 @@ func (b *SyncBroadcaster) GetHistory() []string {
 }
 
 type Server struct {
-	config      *config.Config
-	configPath  string
-	adminToken  string
-	csrfSecret  string
-	dryRun      bool
-	version     string
-	fs          system.FileSystem
-	runner      system.CommandRunner
-	wg          *wireguard.WGConfig
-	dns         *dnsmasq.DNSMasq
-	haproxy     *haproxy.HAProxy
-	letsencrypt *letsencrypt.Manager
-	monitor     *monitor.Monitor
-	templates   map[string]*template.Template
-	sync        *SyncBroadcaster
-	health      *HealthStatus
+	config              *config.Config
+	configPath          string
+	adminToken          string
+	csrfSecret          string
+	dryRun              bool
+	version             string
+	fs                  system.FileSystem
+	runner              system.CommandRunner
+	wg                  *wireguard.WGConfig
+	dns                 *dnsmasq.DNSMasq
+	haproxy             *haproxy.HAProxy
+	letsencrypt         *letsencrypt.Manager
+	monitor             *monitor.Monitor
+	templates           map[string]*template.Template
+	sync                *SyncBroadcaster
+	health              *HealthStatus
+	connectivityResults []ConnectivityCheck
 }
 
 func New(configPath string) (*Server, error) {
@@ -181,16 +182,31 @@ func NewWithConfig(cfg *config.Config, configPath string, dryRun bool, version s
 		runner = &system.RealCommandRunner{}
 	}
 
-	// Use existing admin token or generate a new one
-	adminToken := cfg.AdminToken
+	// Load admin token from file, migrating from config if needed
+	tokenFile := configPath + ".token"
+	adminToken := ""
 	isNewToken := false
+
+	// Try to read from token file first
+	if data, err := os.ReadFile(tokenFile); err == nil {
+		adminToken = strings.TrimSpace(string(data))
+	}
+
+	// If file is empty/missing, try to migrate from config
+	if adminToken == "" && cfg.AdminToken != "" {
+		adminToken = cfg.AdminToken
+		// Migrate: write to file and clear from config
+		if err := os.WriteFile(tokenFile, []byte(adminToken+"\n"), 0600); err == nil {
+			fmt.Fprintf(os.Stderr, "Admin token migrated to: %s\n", tokenFile)
+		}
+		cfg.AdminToken = ""
+		_ = config.Save(configPath, cfg)
+	}
+
+	// If still empty, generate a new token
 	if adminToken == "" {
 		adminToken = generateToken(32)
-		cfg.AdminToken = adminToken
 		isNewToken = true
-		_ = config.Save(configPath, cfg)
-		// Write token to a secure file for first-time access
-		tokenFile := configPath + ".token"
 		if err := os.WriteFile(tokenFile, []byte(adminToken+"\n"), 0600); err == nil {
 			fmt.Fprintf(os.Stderr, "Admin token written to: %s (delete after reading)\n", tokenFile)
 		}
@@ -325,10 +341,11 @@ func (s *Server) verifyCookie(cookie string) (string, bool) {
 
 // generateCSRFToken creates a signed CSRF token for the current session
 func (s *Server) generateCSRFToken(sessionID string) string {
-	// Token = base64(sessionID|timestamp|signature)
-	// Using | as delimiter since sessionID may contain colons (e.g., "vpn:10.0.0.1")
+	// Token = base64(base64(sessionID)|timestamp|signature)
+	// SessionID is base64-encoded because it may contain | (from signed cookies)
 	timestamp := time.Now().Unix()
-	data := fmt.Sprintf("%s|%d", sessionID, timestamp)
+	encodedSession := base64.StdEncoding.EncodeToString([]byte(sessionID))
+	data := fmt.Sprintf("%s|%d", encodedSession, timestamp)
 
 	h := hmac.New(sha256.New, []byte(s.csrfSecret))
 	h.Write([]byte(data))
@@ -345,16 +362,20 @@ func (s *Server) validateCSRFToken(token, sessionID string) bool {
 		return false
 	}
 
-	// Split by | delimiter (sessionID may contain colons)
+	// Split by | delimiter - sessionID is base64-encoded so won't contain |
 	parts := strings.SplitN(string(decoded), "|", 3)
 	if len(parts) != 3 {
 		return false
 	}
 
-	tokenSession, timestampStr, sig := parts[0], parts[1], parts[2]
+	encodedSession, timestampStr, sig := parts[0], parts[1], parts[2]
 
-	// Verify session matches
-	if tokenSession != sessionID {
+	// Decode and verify session matches
+	decodedSession, err := base64.StdEncoding.DecodeString(encodedSession)
+	if err != nil {
+		return false
+	}
+	if string(decodedSession) != sessionID {
 		return false
 	}
 
@@ -368,7 +389,7 @@ func (s *Server) validateCSRFToken(token, sessionID string) bool {
 	}
 
 	// Verify signature
-	data := fmt.Sprintf("%s|%s", tokenSession, timestampStr)
+	data := fmt.Sprintf("%s|%s", encodedSession, timestampStr)
 	h := hmac.New(sha256.New, []byte(s.csrfSecret))
 	h.Write([]byte(data))
 	expectedSig := base64.StdEncoding.EncodeToString(h.Sum(nil))
@@ -423,7 +444,7 @@ func (s *Server) requireCSRF(w http.ResponseWriter, r *http.Request) bool {
 	}
 
 	if !s.validateCSRFToken(csrfToken, sessionID) {
-		fmt.Printf("[CSRF] Invalid token for %s %s\n", r.Method, r.URL.Path)
+		fmt.Printf("[CSRF] Invalid token for %s %s sessionID=%q token=%q\n", r.Method, r.URL.Path, sessionID, csrfToken[:min(len(csrfToken), 20)]+"...")
 		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
 		return false
 	}
@@ -434,6 +455,7 @@ func (s *Server) requireCSRF(w http.ResponseWriter, r *http.Request) bool {
 // getCSRFToken returns a CSRF token for the current request's session
 func (s *Server) getCSRFToken(r *http.Request) string {
 	sessionID := s.getSessionID(r)
+	fmt.Printf("[CSRF] Generating token for %s %s sessionID=%q\n", r.Method, r.URL.Path, sessionID)
 	if sessionID == "" {
 		fmt.Printf("[CSRF] No session for %s %s\n", r.Method, r.URL.Path)
 		return ""
@@ -1032,6 +1054,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("/admin/setup/install-service", s.csrfMiddleware(s.handleInstallService))
 	mux.HandleFunc("/admin/setup/enable-service", s.csrfMiddleware(s.handleEnableService))
 	mux.HandleFunc("/admin/setup/create-wg-config", s.csrfMiddleware(s.handleCreateWGConfig))
+	mux.HandleFunc("/admin/setup/test-connectivity", s.csrfMiddleware(s.handleTestConnectivity))
 	mux.HandleFunc("/admin/help", s.csrfMiddleware(s.handleHelp))
 
 	mux.HandleFunc("/admin/haproxy", s.csrfMiddleware(s.handleHAProxyStatus))
