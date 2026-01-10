@@ -290,8 +290,25 @@ const setupTemplate = `<!DOCTYPE html>
                     <input type="text" name="vpn_range" value="{{.Config.VPNRange}}" placeholder="10.100.0.0/24">
                     <label>DNS Server (for clients)</label>
                     <input type="text" name="dns" value="{{.Config.DNS}}" placeholder="10.100.0.1">
-                    <label>Allowed IPs (client routes, blank = auto-detect VPN + local network)</label>
-                    <input type="text" name="allowed_ips" value="{{.Config.AllowedIPs}}" placeholder="{{.Config.GetAllowedIPs}}">
+                    <label>VPN Gateway Route (networks clients can access via VPN)</label>
+                    <div style="display: flex; gap: 1rem; margin: 0.5rem 0;">
+                        <label style="display: flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+                            <input type="radio" name="gateway_mode" value="local" onchange="setGatewayMode('local')" style="width: auto;">
+                            Local Networks
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+                            <input type="radio" name="gateway_mode" value="full" onchange="setGatewayMode('full')" style="width: auto;">
+                            Full Tunnel
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+                            <input type="radio" name="gateway_mode" value="custom" onchange="setGatewayMode('custom')" style="width: auto;">
+                            Custom
+                        </label>
+                    </div>
+                    <input type="text" name="allowed_ips" id="allowed_ips" value="{{.Config.AllowedIPs}}" placeholder="{{.Config.DeriveAllowedIPs}}">
+                    <div style="color: #888; font-size: 0.85em; margin-top: 0.25rem;">
+                        <strong>Local Networks:</strong> VPN + LAN only ({{.Config.DeriveAllowedIPs}}). <strong>Full Tunnel:</strong> All traffic via VPN (0.0.0.0/0).
+                    </div>
                 </details>
 
                 <details>
@@ -350,6 +367,43 @@ sudo homelab-horizon
                 form.appendChild(input);
             }
         });
+    })();
+
+    // VPN gateway route mode helpers
+    var localNetworks = '{{.Config.DeriveAllowedIPs}}';
+    var fullTunnel = '0.0.0.0/0, ::/0';
+
+    function setGatewayMode(mode) {
+        var input = document.getElementById('allowed_ips');
+        if (mode === 'local') {
+            input.value = '';
+            input.disabled = true;
+            input.style.opacity = '0.5';
+        } else if (mode === 'full') {
+            input.value = fullTunnel;
+            input.disabled = true;
+            input.style.opacity = '0.5';
+        } else {
+            input.disabled = false;
+            input.style.opacity = '1';
+        }
+    }
+
+    // Initialize radio based on current value
+    (function() {
+        var input = document.getElementById('allowed_ips');
+        var value = input.value.trim();
+        var radios = document.querySelectorAll('input[name="gateway_mode"]');
+        if (value === '' || value === localNetworks) {
+            radios[0].checked = true; // local
+            setGatewayMode('local');
+        } else if (value.indexOf('0.0.0.0/0') !== -1) {
+            radios[1].checked = true; // full
+            setGatewayMode('full');
+        } else {
+            radios[2].checked = true; // custom
+            setGatewayMode('custom');
+        }
     })();
     </script>
 </body>
