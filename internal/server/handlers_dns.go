@@ -71,6 +71,74 @@ func (s *Server) handleDNSDiscoverZones(w http.ResponseWriter, r *http.Request) 
 			CloudflareAPIToken: apiToken,
 		}
 
+	case config.DNSProviderDigitalOcean:
+		apiToken := r.URL.Query().Get("api_token")
+
+		if apiToken == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"api_token required"}`)
+			return
+		}
+
+		cfg = &config.DNSProviderConfig{
+			Type:     config.DNSProviderDigitalOcean,
+			APIToken: apiToken,
+		}
+
+	case config.DNSProviderHetzner:
+		apiToken := r.URL.Query().Get("api_token")
+
+		if apiToken == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"api_token required"}`)
+			return
+		}
+
+		cfg = &config.DNSProviderConfig{
+			Type:     config.DNSProviderHetzner,
+			APIToken: apiToken,
+		}
+
+	case config.DNSProviderGandi:
+		apiToken := r.URL.Query().Get("api_token")
+
+		if apiToken == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"api_token required"}`)
+			return
+		}
+
+		cfg = &config.DNSProviderConfig{
+			Type:     config.DNSProviderGandi,
+			APIToken: apiToken,
+		}
+
+	case config.DNSProviderGoogleCloud:
+		gcpProject := r.URL.Query().Get("gcp_project")
+		gcpSAJson := r.URL.Query().Get("gcp_service_account_json")
+
+		if gcpProject == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"gcp_project required"}`)
+			return
+		}
+
+		cfg = &config.DNSProviderConfig{
+			Type:                  config.DNSProviderGoogleCloud,
+			GCPProject:            gcpProject,
+			GCPServiceAccountJSON: gcpSAJson,
+		}
+
+	case config.DNSProviderDuckDNS:
+		// DuckDNS doesn't support zone listing - it only supports *.duckdns.org
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"zones":[{"ID":"duckdns","Name":"duckdns.org","DNSManaged":true}]}`)
+		return
+
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)

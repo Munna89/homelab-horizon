@@ -15,14 +15,26 @@ import (
 type DNSProviderType string
 
 const (
-	DNSProviderRoute53     DNSProviderType = "route53"
-	DNSProviderNamecom     DNSProviderType = "namecom"
-	DNSProviderCloudflare  DNSProviderType = "cloudflare"
+	DNSProviderRoute53      DNSProviderType = "route53"
+	DNSProviderNamecom      DNSProviderType = "namecom"
+	DNSProviderCloudflare   DNSProviderType = "cloudflare"
+	DNSProviderDigitalOcean DNSProviderType = "digitalocean"
+	DNSProviderHetzner      DNSProviderType = "hetzner"
+	DNSProviderGandi        DNSProviderType = "gandi"
+	DNSProviderGoogleCloud  DNSProviderType = "googlecloud"
+	DNSProviderDuckDNS      DNSProviderType = "duckdns"
 )
 
 // DNSProviderConfig holds provider-specific credentials for DNS operations
 type DNSProviderConfig struct {
 	Type DNSProviderType `json:"type"`
+
+	// Zone name (domain) for libdns providers - e.g., "example.com"
+	// This is automatically populated from the parent Zone.Name
+	ZoneName string `json:"zone_name,omitempty"`
+
+	// Generic API token (used by multiple providers)
+	APIToken string `json:"api_token,omitempty"`
 
 	// Route53 credentials
 	AWSAccessKeyID     string `json:"aws_access_key_id,omitempty"`
@@ -37,7 +49,11 @@ type DNSProviderConfig struct {
 
 	// Cloudflare credentials
 	CloudflareAPIToken string `json:"cloudflare_api_token,omitempty"`
-	CloudflareZoneID   string `json:"cloudflare_zone_id,omitempty"` // Optional: limit to specific zone
+	CloudflareZoneID   string `json:"cloudflare_zone_id,omitempty"` // Optional: Cloudflare zone ID (if not provided, looked up by zone name)
+
+	// Google Cloud DNS credentials
+	GCPProject            string `json:"gcp_project,omitempty"`
+	GCPServiceAccountJSON string `json:"gcp_service_account_json,omitempty"` // JSON key file contents or path
 }
 
 // Validate checks if the provider config has required fields
@@ -55,6 +71,26 @@ func (d *DNSProviderConfig) Validate() error {
 	case DNSProviderCloudflare:
 		if d.CloudflareAPIToken == "" {
 			return errors.New("cloudflare requires cloudflare_api_token")
+		}
+	case DNSProviderDigitalOcean:
+		if d.APIToken == "" {
+			return errors.New("digitalocean requires api_token")
+		}
+	case DNSProviderHetzner:
+		if d.APIToken == "" {
+			return errors.New("hetzner requires api_token")
+		}
+	case DNSProviderGandi:
+		if d.APIToken == "" {
+			return errors.New("gandi requires api_token (bearer token)")
+		}
+	case DNSProviderGoogleCloud:
+		if d.GCPProject == "" {
+			return errors.New("googlecloud requires gcp_project")
+		}
+	case DNSProviderDuckDNS:
+		if d.APIToken == "" {
+			return errors.New("duckdns requires api_token")
 		}
 	default:
 		return fmt.Errorf("unknown dns provider type: %s", d.Type)
@@ -131,8 +167,15 @@ type Zone struct {
 	SubZones    []string           `json:"sub_zones,omitempty"` // Sub-domains needing wildcard certs (e.g., "vpn" for *.vpn.example.com)
 }
 
-// GetDNSProvider returns the DNS provider config
+// GetDNSProvider returns the DNS provider config with zone name populated
 func (z *Zone) GetDNSProvider() *DNSProviderConfig {
+	if z.DNSProvider == nil {
+		return nil
+	}
+	// Ensure zone name is populated for libdns providers
+	if z.DNSProvider.ZoneName == "" {
+		z.DNSProvider.ZoneName = z.Name
+	}
 	return z.DNSProvider
 }
 

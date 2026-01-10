@@ -64,6 +64,16 @@ func NewProvider(cfg *config.DNSProviderConfig) (Provider, error) {
 		return NewNamecomProvider(cfg)
 	case config.DNSProviderCloudflare:
 		return NewCloudflareProvider(cfg)
+	case config.DNSProviderDigitalOcean:
+		return NewDigitalOceanProvider(cfg)
+	case config.DNSProviderHetzner:
+		return NewHetznerProvider(cfg)
+	case config.DNSProviderGandi:
+		return NewGandiProvider(cfg)
+	case config.DNSProviderGoogleCloud:
+		return NewGoogleCloudProvider(cfg)
+	case config.DNSProviderDuckDNS:
+		return NewDuckDNSProvider(cfg)
 	default:
 		return nil, fmt.Errorf("unknown dns provider type: %s", cfg.Type)
 	}

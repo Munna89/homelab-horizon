@@ -179,8 +179,13 @@ const adminTemplate = `<!DOCTYPE html>
                     <label style="font-weight: bold; margin-bottom: 0.25rem; display: block;">DNS Provider</label>
                     <select name="dns_provider_type" id="dns-provider-type" style="width: 100%; background: #0f3460; color: #fff; padding: 0.75rem; margin-bottom: 0.5rem;" onchange="toggleProviderFields(this.value)">
                         <option value="route53">AWS Route53</option>
-                        <option value="namecom">Name.com</option>
                         <option value="cloudflare">Cloudflare</option>
+                        <option value="digitalocean">DigitalOcean</option>
+                        <option value="hetzner">Hetzner</option>
+                        <option value="gandi">Gandi</option>
+                        <option value="googlecloud">Google Cloud DNS</option>
+                        <option value="duckdns">DuckDNS</option>
+                        <option value="namecom">Name.com</option>
                     </select>
 
                     <!-- Route53 Fields -->
@@ -248,6 +253,93 @@ const adminTemplate = `<!DOCTYPE html>
                         <select name="cloudflare_zone_select" id="cloudflare-zone-select" style="width: 100%; background: #0f3460; color: #fff; padding: 0.75rem; margin-bottom: 0.5rem;" onchange="selectCloudflareZone(this)" disabled>
                             <option value="">Enter API token and click Load Zones</option>
                         </select>
+                    </div>
+
+                    <!-- DigitalOcean Fields -->
+                    <div id="digitalocean-fields" style="display: none;">
+                        <details style="margin-bottom: 0.5rem; background: #1a1a2e; padding: 0.5rem; border-radius: 4px;">
+                            <summary style="cursor: pointer; color: #3498db; font-size: 0.9em;">How to get DigitalOcean API Token</summary>
+                            <ol style="padding-left: 1.5rem; margin: 0.5rem 0; color: #888; font-size: 0.85em; line-height: 1.6;">
+                                <li>Go to <a href="https://cloud.digitalocean.com/account/api/tokens" target="_blank">DigitalOcean API Tokens</a></li>
+                                <li>Click "Generate New Token"</li>
+                                <li>Give it a name and select Read+Write scope</li>
+                                <li>Copy the generated token (shown only once)</li>
+                            </ol>
+                        </details>
+                        <input type="password" name="digitalocean_api_token" id="digitalocean-api-token" placeholder="DigitalOcean API Token">
+                        <button type="button" onclick="loadDigitalOceanDomains()" style="margin-bottom: 0.5rem;">Load Domains</button>
+                        <select name="digitalocean_domain_select" id="digitalocean-domain-select" style="width: 100%; background: #0f3460; color: #fff; padding: 0.75rem; margin-bottom: 0.5rem;" onchange="selectDigitalOceanDomain(this)" disabled>
+                            <option value="">Enter API token and click Load Domains</option>
+                        </select>
+                    </div>
+
+                    <!-- Hetzner Fields -->
+                    <div id="hetzner-fields" style="display: none;">
+                        <details style="margin-bottom: 0.5rem; background: #1a1a2e; padding: 0.5rem; border-radius: 4px;">
+                            <summary style="cursor: pointer; color: #3498db; font-size: 0.9em;">How to get Hetzner DNS API Token</summary>
+                            <ol style="padding-left: 1.5rem; margin: 0.5rem 0; color: #888; font-size: 0.85em; line-height: 1.6;">
+                                <li>Go to <a href="https://dns.hetzner.com/settings/api-token" target="_blank">Hetzner DNS Console</a></li>
+                                <li>Click "Create access token"</li>
+                                <li>Copy the generated token</li>
+                            </ol>
+                        </details>
+                        <input type="password" name="hetzner_api_token" id="hetzner-api-token" placeholder="Hetzner DNS API Token">
+                        <button type="button" onclick="loadHetznerZones()" style="margin-bottom: 0.5rem;">Load Zones</button>
+                        <select name="hetzner_zone_select" id="hetzner-zone-select" style="width: 100%; background: #0f3460; color: #fff; padding: 0.75rem; margin-bottom: 0.5rem;" onchange="selectHetznerZone(this)" disabled>
+                            <option value="">Enter API token and click Load Zones</option>
+                        </select>
+                    </div>
+
+                    <!-- Gandi Fields -->
+                    <div id="gandi-fields" style="display: none;">
+                        <details style="margin-bottom: 0.5rem; background: #1a1a2e; padding: 0.5rem; border-radius: 4px;">
+                            <summary style="cursor: pointer; color: #3498db; font-size: 0.9em;">How to get Gandi API Token</summary>
+                            <ol style="padding-left: 1.5rem; margin: 0.5rem 0; color: #888; font-size: 0.85em; line-height: 1.6;">
+                                <li>Go to <a href="https://account.gandi.net/en/users/security" target="_blank">Gandi Account Security</a></li>
+                                <li>Under "Personal Access Token", click "Create a token"</li>
+                                <li>Give it permissions for "Manage domain name technical configurations"</li>
+                                <li>Copy the generated token</li>
+                            </ol>
+                        </details>
+                        <input type="password" name="gandi_api_token" id="gandi-api-token" placeholder="Gandi Personal Access Token">
+                        <button type="button" onclick="loadGandiDomains()" style="margin-bottom: 0.5rem;">Load Domains</button>
+                        <select name="gandi_domain_select" id="gandi-domain-select" style="width: 100%; background: #0f3460; color: #fff; padding: 0.75rem; margin-bottom: 0.5rem;" onchange="selectGandiDomain(this)" disabled>
+                            <option value="">Enter API token and click Load Domains</option>
+                        </select>
+                    </div>
+
+                    <!-- Google Cloud DNS Fields -->
+                    <div id="googlecloud-fields" style="display: none;">
+                        <details style="margin-bottom: 0.5rem; background: #1a1a2e; padding: 0.5rem; border-radius: 4px;">
+                            <summary style="cursor: pointer; color: #3498db; font-size: 0.9em;">How to set up Google Cloud DNS</summary>
+                            <ol style="padding-left: 1.5rem; margin: 0.5rem 0; color: #888; font-size: 0.85em; line-height: 1.6;">
+                                <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a></li>
+                                <li>Create a Service Account with "DNS Administrator" role</li>
+                                <li>Create and download a JSON key file</li>
+                                <li>Enter your GCP project ID and paste the JSON key below</li>
+                            </ol>
+                        </details>
+                        <input type="text" name="gcp_project" id="gcp-project" placeholder="GCP Project ID">
+                        <textarea name="gcp_service_account_json" id="gcp-service-account-json" placeholder="Service Account JSON (paste entire key file)" style="width: 100%; background: #0f3460; color: #fff; padding: 0.75rem; margin-bottom: 0.5rem; min-height: 100px; font-family: monospace; font-size: 0.85em;"></textarea>
+                        <button type="button" onclick="loadGoogleCloudZones()" style="margin-bottom: 0.5rem;">Load Zones</button>
+                        <select name="googlecloud_zone_select" id="googlecloud-zone-select" style="width: 100%; background: #0f3460; color: #fff; padding: 0.75rem; margin-bottom: 0.5rem;" onchange="selectGoogleCloudZone(this)" disabled>
+                            <option value="">Enter project and credentials, then click Load Zones</option>
+                        </select>
+                    </div>
+
+                    <!-- DuckDNS Fields -->
+                    <div id="duckdns-fields" style="display: none;">
+                        <details style="margin-bottom: 0.5rem; background: #1a1a2e; padding: 0.5rem; border-radius: 4px;">
+                            <summary style="cursor: pointer; color: #3498db; font-size: 0.9em;">How to get DuckDNS Token</summary>
+                            <ol style="padding-left: 1.5rem; margin: 0.5rem 0; color: #888; font-size: 0.85em; line-height: 1.6;">
+                                <li>Go to <a href="https://www.duckdns.org/" target="_blank">DuckDNS</a> and sign in</li>
+                                <li>Your token is displayed at the top of the page</li>
+                                <li>DuckDNS only supports subdomains of duckdns.org</li>
+                            </ol>
+                        </details>
+                        <input type="password" name="duckdns_api_token" id="duckdns-api-token" placeholder="DuckDNS Token">
+                        <input type="text" name="duckdns_subdomain" id="duckdns-subdomain" placeholder="Your subdomain (e.g., mylab for mylab.duckdns.org)">
+                        <p style="color: #888; font-size: 0.85em; margin-bottom: 0.5rem;">Zone will be set to: <code id="duckdns-zone-preview">subdomain.duckdns.org</code></p>
                     </div>
 
                     <div id="zone-error" class="error" style="display:none; margin-bottom: 0.5rem;"></div>
@@ -673,9 +765,6 @@ const adminTemplate = `<!DOCTYPE html>
     }
 
     function toggleProviderFields(provider) {
-        var route53Fields = document.getElementById('route53-fields');
-        var namecomFields = document.getElementById('namecom-fields');
-        var cloudflareFields = document.getElementById('cloudflare-fields');
         var zoneName = document.getElementById('zone-name');
         var zoneId = document.getElementById('zone-id');
 
@@ -684,17 +773,15 @@ const adminTemplate = `<!DOCTYPE html>
         zoneId.value = '';
 
         // Hide all provider fields first
-        route53Fields.style.display = 'none';
-        namecomFields.style.display = 'none';
-        cloudflareFields.style.display = 'none';
+        var allFields = ['route53', 'namecom', 'cloudflare', 'digitalocean', 'hetzner', 'gandi', 'googlecloud', 'duckdns'];
+        allFields.forEach(function(p) {
+            var el = document.getElementById(p + '-fields');
+            if (el) el.style.display = 'none';
+        });
 
-        if (provider === 'route53') {
-            route53Fields.style.display = 'block';
-        } else if (provider === 'namecom') {
-            namecomFields.style.display = 'block';
-        } else if (provider === 'cloudflare') {
-            cloudflareFields.style.display = 'block';
-        }
+        // Show selected provider fields
+        var selected = document.getElementById(provider + '-fields');
+        if (selected) selected.style.display = 'block';
     }
 
     function loadNamecomDomains() {
@@ -819,6 +906,231 @@ const adminTemplate = `<!DOCTYPE html>
             errorDiv.style.display = 'none';
         }
     }
+
+    // DigitalOcean functions
+    function loadDigitalOceanDomains() {
+        var apiToken = document.getElementById('digitalocean-api-token').value;
+        var domainSelect = document.getElementById('digitalocean-domain-select');
+        var errorDiv = document.getElementById('zone-error');
+
+        errorDiv.style.display = 'none';
+
+        if (!apiToken) {
+            errorDiv.innerHTML = 'Please enter DigitalOcean API token';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        domainSelect.disabled = true;
+        domainSelect.innerHTML = '<option value="">Loading domains...</option>';
+
+        fetch('/admin/dns/discover-zones?provider=digitalocean&api_token=' + encodeURIComponent(apiToken))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                domainSelect.disabled = false;
+                if (data.error) {
+                    errorDiv.innerHTML = 'Error: ' + data.error;
+                    errorDiv.style.display = 'block';
+                    domainSelect.innerHTML = '<option value="">Failed to load domains</option>';
+                    return;
+                }
+                if (!data.zones || data.zones.length === 0) {
+                    domainSelect.innerHTML = '<option value="">No domains found</option>';
+                    return;
+                }
+                var html = '<option value="">Select Domain</option>';
+                data.zones.forEach(function(z) {
+                    html += '<option value="' + z.ID + '" data-name="' + z.Name + '">' + z.Name + '</option>';
+                });
+                domainSelect.innerHTML = html;
+            })
+            .catch(function(err) {
+                domainSelect.disabled = false;
+                errorDiv.innerHTML = 'Error: ' + err.message;
+                errorDiv.style.display = 'block';
+                domainSelect.innerHTML = '<option value="">Failed to load domains</option>';
+            });
+    }
+
+    function selectDigitalOceanDomain(select) {
+        var option = select.options[select.selectedIndex];
+        document.getElementById('zone-name').value = option.dataset.name || '';
+        document.getElementById('zone-id').value = option.value || '';
+    }
+
+    // Hetzner functions
+    function loadHetznerZones() {
+        var apiToken = document.getElementById('hetzner-api-token').value;
+        var zoneSelect = document.getElementById('hetzner-zone-select');
+        var errorDiv = document.getElementById('zone-error');
+
+        errorDiv.style.display = 'none';
+
+        if (!apiToken) {
+            errorDiv.innerHTML = 'Please enter Hetzner DNS API token';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        zoneSelect.disabled = true;
+        zoneSelect.innerHTML = '<option value="">Loading zones...</option>';
+
+        fetch('/admin/dns/discover-zones?provider=hetzner&api_token=' + encodeURIComponent(apiToken))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                zoneSelect.disabled = false;
+                if (data.error) {
+                    errorDiv.innerHTML = 'Error: ' + data.error;
+                    errorDiv.style.display = 'block';
+                    zoneSelect.innerHTML = '<option value="">Failed to load zones</option>';
+                    return;
+                }
+                if (!data.zones || data.zones.length === 0) {
+                    zoneSelect.innerHTML = '<option value="">No zones found</option>';
+                    return;
+                }
+                var html = '<option value="">Select Zone</option>';
+                data.zones.forEach(function(z) {
+                    html += '<option value="' + z.ID + '" data-name="' + z.Name + '">' + z.Name + '</option>';
+                });
+                zoneSelect.innerHTML = html;
+            })
+            .catch(function(err) {
+                zoneSelect.disabled = false;
+                errorDiv.innerHTML = 'Error: ' + err.message;
+                errorDiv.style.display = 'block';
+                zoneSelect.innerHTML = '<option value="">Failed to load zones</option>';
+            });
+    }
+
+    function selectHetznerZone(select) {
+        var option = select.options[select.selectedIndex];
+        document.getElementById('zone-name').value = option.dataset.name || '';
+        document.getElementById('zone-id').value = option.value || '';
+    }
+
+    // Gandi functions
+    function loadGandiDomains() {
+        var apiToken = document.getElementById('gandi-api-token').value;
+        var domainSelect = document.getElementById('gandi-domain-select');
+        var errorDiv = document.getElementById('zone-error');
+
+        errorDiv.style.display = 'none';
+
+        if (!apiToken) {
+            errorDiv.innerHTML = 'Please enter Gandi API token';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        domainSelect.disabled = true;
+        domainSelect.innerHTML = '<option value="">Loading domains...</option>';
+
+        fetch('/admin/dns/discover-zones?provider=gandi&api_token=' + encodeURIComponent(apiToken))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                domainSelect.disabled = false;
+                if (data.error) {
+                    errorDiv.innerHTML = 'Error: ' + data.error;
+                    errorDiv.style.display = 'block';
+                    domainSelect.innerHTML = '<option value="">Failed to load domains</option>';
+                    return;
+                }
+                if (!data.zones || data.zones.length === 0) {
+                    domainSelect.innerHTML = '<option value="">No domains found</option>';
+                    return;
+                }
+                var html = '<option value="">Select Domain</option>';
+                data.zones.forEach(function(z) {
+                    html += '<option value="' + z.ID + '" data-name="' + z.Name + '">' + z.Name + '</option>';
+                });
+                domainSelect.innerHTML = html;
+            })
+            .catch(function(err) {
+                domainSelect.disabled = false;
+                errorDiv.innerHTML = 'Error: ' + err.message;
+                errorDiv.style.display = 'block';
+                domainSelect.innerHTML = '<option value="">Failed to load domains</option>';
+            });
+    }
+
+    function selectGandiDomain(select) {
+        var option = select.options[select.selectedIndex];
+        document.getElementById('zone-name').value = option.dataset.name || '';
+        document.getElementById('zone-id').value = option.value || '';
+    }
+
+    // Google Cloud DNS functions
+    function loadGoogleCloudZones() {
+        var project = document.getElementById('gcp-project').value;
+        var saJson = document.getElementById('gcp-service-account-json').value;
+        var zoneSelect = document.getElementById('googlecloud-zone-select');
+        var errorDiv = document.getElementById('zone-error');
+
+        errorDiv.style.display = 'none';
+
+        if (!project) {
+            errorDiv.innerHTML = 'Please enter GCP Project ID';
+            errorDiv.style.display = 'block';
+            return;
+        }
+
+        zoneSelect.disabled = true;
+        zoneSelect.innerHTML = '<option value="">Loading zones...</option>';
+
+        var url = '/admin/dns/discover-zones?provider=googlecloud&gcp_project=' + encodeURIComponent(project);
+        if (saJson) {
+            url += '&gcp_service_account_json=' + encodeURIComponent(saJson);
+        }
+
+        fetch(url)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                zoneSelect.disabled = false;
+                if (data.error) {
+                    errorDiv.innerHTML = 'Error: ' + data.error;
+                    errorDiv.style.display = 'block';
+                    zoneSelect.innerHTML = '<option value="">Failed to load zones</option>';
+                    return;
+                }
+                if (!data.zones || data.zones.length === 0) {
+                    zoneSelect.innerHTML = '<option value="">No zones found</option>';
+                    return;
+                }
+                var html = '<option value="">Select Zone</option>';
+                data.zones.forEach(function(z) {
+                    html += '<option value="' + z.ID + '" data-name="' + z.Name + '">' + z.Name + '</option>';
+                });
+                zoneSelect.innerHTML = html;
+            })
+            .catch(function(err) {
+                zoneSelect.disabled = false;
+                errorDiv.innerHTML = 'Error: ' + err.message;
+                errorDiv.style.display = 'block';
+                zoneSelect.innerHTML = '<option value="">Failed to load zones</option>';
+            });
+    }
+
+    function selectGoogleCloudZone(select) {
+        var option = select.options[select.selectedIndex];
+        document.getElementById('zone-name').value = option.dataset.name || '';
+        document.getElementById('zone-id').value = option.value || '';
+    }
+
+    // DuckDNS functions
+    document.addEventListener('DOMContentLoaded', function() {
+        var duckdnsSubdomain = document.getElementById('duckdns-subdomain');
+        if (duckdnsSubdomain) {
+            duckdnsSubdomain.addEventListener('input', function() {
+                var preview = document.getElementById('duckdns-zone-preview');
+                var subdomain = this.value.trim() || 'subdomain';
+                preview.textContent = subdomain + '.duckdns.org';
+                // Auto-set zone name and ID for DuckDNS
+                document.getElementById('zone-name').value = subdomain + '.duckdns.org';
+                document.getElementById('zone-id').value = subdomain;
+            });
+        }
+    });
 
     var syncRunning = false;
     var syncEventSource = null;

@@ -76,9 +76,9 @@ type NamecomProvider struct {
 }
 
 // NewNamecomProvider creates a new Name.com DNS provider
-func NewNamecomProvider(cfg *config.DNSProviderConfig) (*NamecomProvider, error) {
+func NewNamecomProvider(cfg *config.DNSProviderConfig) (Provider, error) {
 	if cfg.NamecomUsername == "" || cfg.NamecomAPIToken == "" {
-		return nil, fmt.Errorf("namecom requires username and api_token")
+		return nil, fmt.Errorf("namecom requires namecom_username and namecom_api_token")
 	}
 	return &NamecomProvider{
 		username: cfg.NamecomUsername,
