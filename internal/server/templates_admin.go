@@ -79,6 +79,7 @@ const adminTemplate = `<!DOCTYPE html>
                         </form>
                     </td>
                     <td>
+                        <button type="button" class="secondary" style="padding: 0.25rem 0.5rem; font-size: 0.85em;" onclick='showEditClient({{. | json}})'>Edit</button>
                         <form method="POST" action="/admin/client/delete" style="display:inline" onsubmit="return confirm('Remove this client?')">
                             <input type="hidden" name="pubkey" value="{{.PublicKey}}">
                             <button class="danger" type="submit">Remove</button>
@@ -96,6 +97,8 @@ const adminTemplate = `<!DOCTYPE html>
             <h2>Add Client</h2>
             <form method="POST" action="/admin/client">
                 <input type="text" name="name" placeholder="Client name (e.g., johns-laptop)" required>
+                <input type="text" name="extra_ips" placeholder="Extra allowed IPs (e.g., 192.168.1.0/24, 10.0.0.5/32)" style="margin-top: 0.5rem;">
+                <p style="color: #888; font-size: 0.85em; margin-top: 0.25rem;">Optional: Additional IP ranges this client can route traffic for.</p>
                 <button type="submit">Generate & Add Client</button>
             </form>
         </div>
@@ -642,6 +645,32 @@ const adminTemplate = `<!DOCTYPE html>
             <div id="sync-actions" style="margin-top: 1rem; display: none; flex-shrink: 0;">
                 <button type="button" class="secondary" onclick="closeSyncModal()">Close</button>
             </div>
+        </div>
+    </div>
+
+    <div id="edit-client-modal" class="modal-overlay" onclick="if(event.target===this)closeEditClientModal()">
+        <div class="modal-content" style="max-width: 500px;">
+            <button class="modal-close" onclick="closeEditClientModal()">&times;</button>
+            <h2 style="margin-bottom: 1rem;">Edit VPN Client</h2>
+            <form method="POST" action="/admin/client/edit" id="edit-client-form">
+                <input type="hidden" name="pubkey" id="edit-client-pubkey">
+
+                <div style="margin-bottom: 1rem; padding: 0.5rem; background: #1a1a2e; border-radius: 4px;">
+                    <strong style="color: #e94560;">Client Name</strong>
+                    <input type="text" name="name" id="edit-client-name" placeholder="Client name" required style="margin-top: 0.5rem;">
+                </div>
+
+                <div style="margin-bottom: 1rem; padding: 0.5rem; background: #1a1a2e; border-radius: 4px;">
+                    <strong style="color: #e94560;">Allowed IPs</strong>
+                    <p style="color: #888; font-size: 0.85em; margin: 0.25rem 0;">Primary VPN IP (auto-assigned):</p>
+                    <code id="edit-client-primary-ip" style="display: block; padding: 0.5rem; background: #0f3460; border-radius: 4px; margin-bottom: 0.5rem;"></code>
+                    <p style="color: #888; font-size: 0.85em; margin: 0.25rem 0;">Extra allowed IPs (comma-separated):</p>
+                    <input type="text" name="extra_ips" id="edit-client-extra-ips" placeholder="e.g., 192.168.1.0/24, 10.0.0.5/32" style="margin-top: 0.25rem;">
+                    <p style="color: #888; font-size: 0.85em; margin-top: 0.25rem;">Additional IP ranges this client can route traffic for.</p>
+                </div>
+
+                <button type="submit">Save Changes</button>
+            </form>
         </div>
     </div>
 
@@ -1436,6 +1465,36 @@ const adminTemplate = `<!DOCTYPE html>
 
     function closeEditZoneModal() {
         document.getElementById('edit-zone-modal').classList.remove('active');
+    }
+
+    function showEditClient(client) {
+        document.getElementById('edit-client-pubkey').value = client.PublicKey;
+        document.getElementById('edit-client-name').value = client.Name || '';
+
+        // Parse AllowedIPs to separate primary IP from extra IPs
+        var allowedIPs = client.AllowedIPs || '';
+        var ips = allowedIPs.split(',').map(function(ip) { return ip.trim(); }).filter(function(ip) { return ip; });
+
+        // First IP is the primary VPN IP (the /32 assigned by the system)
+        var primaryIP = '';
+        var extraIPs = [];
+
+        for (var i = 0; i < ips.length; i++) {
+            if (ips[i].endsWith('/32') && primaryIP === '') {
+                primaryIP = ips[i];
+            } else {
+                extraIPs.push(ips[i]);
+            }
+        }
+
+        document.getElementById('edit-client-primary-ip').textContent = primaryIP || allowedIPs;
+        document.getElementById('edit-client-extra-ips').value = extraIPs.join(', ');
+
+        document.getElementById('edit-client-modal').classList.add('active');
+    }
+
+    function closeEditClientModal() {
+        document.getElementById('edit-client-modal').classList.remove('active');
     }
 
     // Auto-inject CSRF token into all POST forms

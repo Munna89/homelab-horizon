@@ -22,6 +22,8 @@ func (s *Server) handleAddClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	extraIPs := strings.TrimSpace(r.FormValue("extra_ips"))
+
 	privKey, pubKey, err := wireguard.GenerateKeyPair()
 	if err != nil {
 		http.Redirect(w, r, "/admin?err="+err.Error(), http.StatusSeeOther)
@@ -34,7 +36,13 @@ func (s *Server) handleAddClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.wg.AddPeer(name, pubKey, clientIP); err != nil {
+	// Combine client IP with extra IPs if provided
+	allowedIPs := clientIP
+	if extraIPs != "" {
+		allowedIPs = clientIP + ", " + extraIPs
+	}
+
+	if err := s.wg.AddPeer(name, pubKey, allowedIPs); err != nil {
 		http.Redirect(w, r, "/admin?err="+err.Error(), http.StatusSeeOther)
 		return
 	}
@@ -59,6 +67,74 @@ func (s *Server) handleAddClient(w http.ResponseWriter, r *http.Request) {
 		"CSRFToken": s.getCSRFToken(r),
 	}
 	s.templates["clientConfig"].Execute(w, data)
+}
+
+func (s *Server) handleEditClient(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPost(w, r) {
+		return
+	}
+
+	pubkey := strings.TrimSpace(r.FormValue("pubkey"))
+	name := strings.TrimSpace(r.FormValue("name"))
+	extraIPs := strings.TrimSpace(r.FormValue("extra_ips"))
+
+	if pubkey == "" {
+		http.Redirect(w, r, "/admin?err=Public+key+required", http.StatusSeeOther)
+		return
+	}
+
+	if name == "" {
+		http.Redirect(w, r, "/admin?err=Name+required", http.StatusSeeOther)
+		return
+	}
+
+	// Get the current peer to preserve the primary IP
+	peer := s.wg.GetPeerByPublicKey(pubkey)
+	if peer == nil {
+		http.Redirect(w, r, "/admin?err=Peer+not+found", http.StatusSeeOther)
+		return
+	}
+
+	// Extract the primary IP (first /32 IP) from current AllowedIPs
+	currentIPs := strings.Split(peer.AllowedIPs, ",")
+	var primaryIP string
+	for _, ip := range currentIPs {
+		ip = strings.TrimSpace(ip)
+		if strings.HasSuffix(ip, "/32") {
+			primaryIP = ip
+			break
+		}
+	}
+
+	if primaryIP == "" {
+		// Fallback to using the first IP if no /32 found
+		primaryIP = strings.TrimSpace(currentIPs[0])
+	}
+
+	// Build new AllowedIPs: primary IP + extra IPs
+	allowedIPs := primaryIP
+	if extraIPs != "" {
+		allowedIPs = primaryIP + ", " + extraIPs
+	}
+
+	if err := s.wg.UpdatePeer(pubkey, name, allowedIPs); err != nil {
+		http.Redirect(w, r, "/admin?err="+err.Error(), http.StatusSeeOther)
+		return
+	}
+
+	// Update VPNAdmins if the name changed and the old name was an admin
+	if peer.Name != name {
+		for i, adminName := range s.config.VPNAdmins {
+			if adminName == peer.Name {
+				s.config.VPNAdmins[i] = name
+				config.Save(s.configPath, s.config)
+				break
+			}
+		}
+	}
+
+	s.wg.Reload()
+	http.Redirect(w, r, "/admin?msg=Client+updated", http.StatusSeeOther)
 }
 
 func (s *Server) handleDeleteClient(w http.ResponseWriter, r *http.Request) {

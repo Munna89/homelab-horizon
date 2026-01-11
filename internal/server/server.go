@@ -1021,6 +1021,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	// Admin routes - all wrapped with CSRF middleware
 	mux.HandleFunc("/admin", s.csrfMiddleware(s.handleAdmin))
 	mux.HandleFunc("/admin/client", s.csrfMiddleware(s.handleAddClient))
+	mux.HandleFunc("/admin/client/edit", s.csrfMiddleware(s.handleEditClient))
 	mux.HandleFunc("/admin/client/delete", s.csrfMiddleware(s.handleDeleteClient))
 	mux.HandleFunc("/admin/client/download", s.csrfMiddleware(s.handleDownload))
 	mux.HandleFunc("/admin/client/toggle-admin", s.csrfMiddleware(s.handleToggleClientAdmin))

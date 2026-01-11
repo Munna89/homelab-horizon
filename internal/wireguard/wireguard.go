@@ -139,6 +139,23 @@ func (w *WGConfig) GetPeers() []Peer {
 	return peers
 }
 
+// GetPeerByPublicKey returns the peer with the given public key
+func (w *WGConfig) GetPeerByPublicKey(publicKey string) *Peer {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	for _, p := range w.peers {
+		if p.PublicKey == publicKey {
+			return &Peer{
+				PublicKey:  p.PublicKey,
+				AllowedIPs: p.AllowedIPs,
+				Name:       p.Name,
+			}
+		}
+	}
+	return nil
+}
+
 // GetPeerByIP returns the peer with the given IP address (without CIDR suffix)
 func (w *WGConfig) GetPeerByIP(ip string) *Peer {
 	w.mu.Lock()
@@ -201,6 +218,91 @@ func (w *WGConfig) AddPeer(name, publicKey, allowedIP string) error {
 		AllowedIPs: allowedIP,
 		Name:       name,
 	})
+
+	return nil
+}
+
+func (w *WGConfig) UpdatePeer(publicKey, name, allowedIPs string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	data, err := os.ReadFile(w.path)
+	if err != nil {
+		return err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var result []string
+	found := false
+	inTargetPeer := false
+	skipNextComment := false
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+
+		// Check if we're entering a new peer section
+		if trimmed == "[Peer]" {
+			inTargetPeer = false
+			skipNextComment = false
+		}
+
+		// Check if this is the target peer by looking at the PublicKey line
+		if strings.HasPrefix(trimmed, "PublicKey") && extractValue(trimmed) == publicKey {
+			inTargetPeer = true
+			found = true
+
+			// Look back and update the comment (name) if it exists
+			for j := len(result) - 1; j >= 0; j-- {
+				resultTrimmed := strings.TrimSpace(result[j])
+				if resultTrimmed == "[Peer]" {
+					// Insert the new name comment after [Peer]
+					result = append(result, "# "+name)
+					break
+				} else if strings.HasPrefix(resultTrimmed, "#") {
+					// Replace existing name comment
+					result[j] = "# " + name
+					break
+				} else if resultTrimmed == "" {
+					continue
+				} else {
+					break
+				}
+			}
+		}
+
+		// If we're in the target peer section, handle AllowedIPs
+		if inTargetPeer && strings.HasPrefix(trimmed, "AllowedIPs") {
+			result = append(result, "AllowedIPs = "+allowedIPs)
+			continue
+		}
+
+		// Skip the old comment line if we just added a new one
+		if skipNextComment && strings.HasPrefix(trimmed, "#") {
+			skipNextComment = false
+			continue
+		}
+
+		result = append(result, line)
+	}
+
+	if !found {
+		return fmt.Errorf("peer not found")
+	}
+
+	output := strings.Join(result, "\n")
+	if err := os.WriteFile(w.path, []byte(output), 0600); err != nil {
+		return err
+	}
+
+	// Update in-memory state
+	for i := range w.peers {
+		if w.peers[i].PublicKey == publicKey {
+			w.peers[i].Name = name
+			w.peers[i].AllowedIPs = allowedIPs
+			break
+		}
+	}
 
 	return nil
 }
